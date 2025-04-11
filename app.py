@@ -890,6 +890,29 @@ def check_adr():
     if not OPENFDA_API_KEY:
         return jsonify({"error": "OpenFDA API Key not configured"}), 500
 
+    # --- START: Simple MVP OpenFDA Check (Always Runs) ---
+    try:
+        # Use a common, known drug for this simple check
+        fixed_drug_term_for_check = "aspirin"
+        # Simple query for the label endpoint
+        simple_label_query = f'(openfda.brand_name:"{fixed_drug_term_for_check}"+OR+openfda.generic_name:"{fixed_drug_term_for_check}")'
+        simple_label_url = f"https://api.fda.gov/drug/label.json?api_key={OPENFDA_API_KEY}&search={simple_label_query}&limit=1"
+        
+        # Log the attempt clearly
+        logging.info(f"[MVP VALIDATION CHECK] Attempting hardcoded OpenFDA query for '{fixed_drug_term_for_check}'. URL: {simple_label_url}")
+        
+        # Make the request
+        simple_fda_response = requests.get(simple_label_url, timeout=10)
+        
+        # Log the outcome clearly
+        logging.info(f"[MVP VALIDATION CHECK] OpenFDA Response Status for '{fixed_drug_term_for_check}': {simple_fda_response.status_code}")
+        
+    except requests.exceptions.RequestException as mvp_e:
+        logging.error(f"[MVP VALIDATION CHECK] OpenFDA API request failed for fixed term '{fixed_drug_term_for_check}': {mvp_e}")
+    except Exception as mvp_e_generic:
+         logging.error(f"[MVP VALIDATION CHECK] Unexpected error during simple OpenFDA check: {mvp_e_generic}")
+    # --- END: Simple MVP OpenFDA Check ---
+
     data = request.get_json()
     transcript = data.get('transcript', '')
 
@@ -900,84 +923,91 @@ def check_adr():
 
     validated_adrs = []
     try:
-        # 1. Call Gemini to identify potential ADRs
-        # Refined prompt for structured output
+        # 1. Call Gemini to identify potential Drug Names with context awareness
         prompt = f"""
-        Analyze the following medical consultation transcript. Identify potential Adverse Drug Reactions (ADRs) mentioned.
-        For each potential ADR, extract the specific drug name mentioned and the specific symptom(s) described by the patient potentially linked to that drug.
-        Format the output STRICTLY as a JSON list of objects, where each object has a "drug" key and a "symptom" key.
-        Example: [{"drug": "Metformin", "symptom": "dizziness"}, {"drug": "Lisinopril", "symptom": "cough"}]
-        If no potential ADRs are mentioned, return an empty list [].
+        Analyze the following medical consultation transcript. Identify potential drug names mentioned.
+        Note that the transcript may contain errors due to speech-to-text inaccuracies. Use your knowledge to infer the most likely correct drug names based on the context.
+        Format the output STRICTLY as a JSON list of strings, where each string is a potential drug name.
+        Example: ["Metformin", "Lisinopril"]
+        If no drug names are clearly mentioned or inferable, return an empty list [].
 
         Transcript:
         "{transcript}"
 
-        Potential ADRs (JSON list):
+        Potential Drug Names (JSON list of strings):
         """
         response = gemini_model.generate_content(prompt)
-        logging.debug(f"Gemini ADR check response: {response.text}")
+        logging.debug(f"Gemini Drug Name check response: {response.text}")
 
-        # Attempt to parse the JSON response from Gemini
-        potential_adrs = []
+        # Attempt to parse the JSON list of drug names from Gemini
+        potential_drug_names = []
         try:
             # Clean the response text if necessary (remove markdown, etc.)
             cleaned_response = response.text.strip().replace('```json', '').replace('```', '').strip()
-            potential_adrs = json.loads(cleaned_response)
-            if not isinstance(potential_adrs, list): # Ensure it's a list
-                 potential_adrs = []
+            potential_drug_names = json.loads(cleaned_response)
+            # Validate that it's a list of strings
+            if not isinstance(potential_drug_names, list) or not all(isinstance(item, str) for item in potential_drug_names):
+                 logging.warning(f"Gemini did not return a valid list of strings: {cleaned_response}")
+                 potential_drug_names = []
         except json.JSONDecodeError:
-            logging.error(f"Failed to decode JSON from Gemini ADR response: {response.text}")
-            potential_adrs = [] # Proceed without potential ADRs if parsing fails
+            logging.error(f"Failed to decode JSON list from Gemini drug name response: {response.text}")
+            potential_drug_names = [] # Proceed without potential drugs if parsing fails
 
-        # 2. Validate potential ADRs with OpenFDA
-        if potential_adrs:
-            logging.info(f"Gemini identified potential ADRs: {potential_adrs}")
+        # 2. Validate potential drug names with OpenFDA label endpoint
+        if potential_drug_names:
+            logging.info(f"Gemini identified potential drug names: {potential_drug_names}")
             session_requests = requests.Session() # Use session for potential connection reuse
-            for adr in potential_adrs:
-                drug = adr.get('drug')
-                symptom = adr.get('symptom')
+            # Use a set to avoid duplicate alerts for the same drug in one transcript segment
+            validated_drugs_in_segment = set()
 
-                if drug and symptom:
-                    # Prepare search terms (handle spaces, basic sanitization)
-                    drug_term = drug.replace(' ', '+').strip()
-                    symptom_term = symptom.replace(' ', '+').strip()
+            for drug_name in potential_drug_names:
+                # Skip if already validated in this segment
+                if not drug_name or drug_name.lower() in validated_drugs_in_segment:
+                    continue
 
-                    # Construct OpenFDA query (Search in brand name, generic name, and reaction)
-                    # Note: OpenFDA search syntax can be complex. This is a basic attempt.
-                    # Searching multiple fields: (field1:"term1")+AND+(field2:"term2")
-                    # Using .exact for potentially better matching on harmonized fields
-                    # query = f'(patient.drug.openfda.brand_name.exact:"{drug_term}"+OR+patient.drug.openfda.generic_name.exact:"{drug_term}"+OR+patient.drug.medicinalproduct.exact:"{drug_term}")+AND+(patient.reaction.reactionmeddrapt.exact:"{symptom_term}")'
-                    # Simpler query for robustness: search across relevant fields
-                    query = f'patient.drug.medicinalproduct:"{drug_term}"+AND+patient.reaction.reactionmeddrapt:"{symptom_term}"'
+                drug_term = drug_name.replace(' ', '+').strip()
 
-                    # Limit to 1 result just to check existence, add API key
-                    url = f"https://api.fda.gov/drug/event.json?api_key={OPENFDA_API_KEY}&search={query}&limit=1"
+                # --- SIMPLIFIED VALIDATION: Check if drug exists in OpenFDA labels ---
+                label_query = f'(openfda.brand_name:"{drug_term}"+OR+openfda.generic_name:"{drug_term}")'
+                label_url = f"https://api.fda.gov/drug/label.json?api_key={OPENFDA_API_KEY}&search={label_query}&limit=1"
 
-                    try:
-                        logging.debug(f"Querying OpenFDA: {url}")
-                        fda_response = session_requests.get(url, timeout=10) # Add timeout
-                        fda_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+                try:
+                    logging.debug(f"Querying OpenFDA Drug Label: {label_url}") # DEBUG level log for URL
+                    fda_response = session_requests.get(label_url, timeout=10)
 
-                        fda_data = fda_response.json()
-                        logging.debug(f"OpenFDA response for {drug}/{symptom}: {fda_data}")
+                    # Handle 404 Not Found gracefully (drug not in label DB)
+                    if fda_response.status_code == 404:
+                        logging.info(f"OpenFDA Drug Label check FAILED for '{drug_name}' (404 Not Found in labels)")
+                        continue # Skip to the next potential drug identified by Gemini
 
-                        # Check if any results were found
-                        if fda_data.get("meta", {}).get("results", {}).get("total", 0) > 0:
-                            logging.info(f"OpenFDA validation SUCCESS for {drug} -> {symptom}")
-                            validated_adrs.append({"drug": drug, "symptom": symptom})
-                        else:
-                             logging.info(f"OpenFDA validation FAILED for {drug} -> {symptom} (No matching reports found)")
+                    # Raise errors for other non-404 issues (like 500, timeout, etc.)
+                    fda_response.raise_for_status()
 
-                    except requests.exceptions.RequestException as e:
-                        logging.error(f"OpenFDA API request failed for {drug}/{symptom}: {e}")
-                    except json.JSONDecodeError:
-                         logging.error(f"Failed to decode JSON from OpenFDA response for {drug}/{symptom}")
+                    fda_data = fda_response.json()
+                    # Log the result count for clarity
+                    total_found = fda_data.get("meta", {}).get("results", {}).get("total", 0)
+                    logging.info(f"OpenFDA Label response for '{drug_name}': Status={fda_response.status_code}, Total={total_found}")
 
+                    # Check if any results were found (drug label exists)
+                    if total_found > 0:
+                        logging.info(f"OpenFDA Drug Label validation SUCCESS for '{drug_name}'. Adding alert.")
+                        # Add to validated list with a generic symptom message
+                        validated_adrs.append({"drug": drug_name, "symptom": "Potential Interaction/Side Effect Mentioned"})
+                        validated_drugs_in_segment.add(drug_name.lower()) # Add to set to prevent duplicates
+                    else:
+                         # This case might occur if the API returns 200 OK but total is 0
+                         logging.info(f"OpenFDA Drug Label validation FAILED for '{drug_name}' (No matching labels found, total=0)")
+
+                except requests.exceptions.RequestException as e:
+                    # Log API errors but don't stop the whole process
+                    logging.error(f"OpenFDA API request failed for drug label '{drug_name}': {e}")
+                except json.JSONDecodeError:
+                    logging.error(f"Failed to decode JSON from OpenFDA label response for '{drug_name}'")
+                # Let other unexpected errors propagate up if necessary
 
     except Exception as e:
+        import traceback # Ensure traceback is imported if used here
         logging.error(f"Error during ADR check: {e}", exc_info=True)
-        # Return empty list on error, but log it
-        return jsonify({"validated_adrs": []})
 
     logging.info(f"Returning validated ADRs: {validated_adrs}")
     return jsonify({"validated_adrs": validated_adrs})

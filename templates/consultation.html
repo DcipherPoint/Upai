@@ -639,7 +639,7 @@
         let isRecording = false;
         let isProcessing = false; // Track AI processing state
         let adrCheckIntervalId = null;
-        const adrCheckInterval = 30000;
+        const adrCheckInterval = 5000; // Check every 5 seconds (was 30000)
         let lastTranscriptLengthForADR = 0;
         const TARGET_SAMPLE_RATE = 48000; 
         let savedConsultationId = null; // Store ID after saving

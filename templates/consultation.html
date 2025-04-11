@@ -127,8 +127,12 @@
                     <label for="adviceGiven">Advice Given:</label>
                     <textarea id="adviceGiven" name="advice_given" rows="2"></textarea>
 
-                    <label for="followUpDate">Follow-Up Date:</label>
-                    <input type="date" id="followUpDate" name="follow_up_date">
+                    <div> <!-- Wrapper for checkbox and date -->
+                        <label for="followUpDate">Follow-Up Date:</label>
+                        <input type="checkbox" id="enableFollowUpDate" style="margin-left: 10px;">
+                        <label for="enableFollowUpDate" style="font-weight: normal; margin-left: 2px;">Enable</label>
+                        <input type="date" id="followUpDate" name="follow_up_date" disabled style="margin-left: 5px; width: auto;">
+                    </div>
 
                 </form>
             </div>
@@ -175,6 +179,7 @@
         const investigationsInput = document.getElementById('investigations');
         const adviceGivenInput = document.getElementById('adviceGiven');
         const followUpDateInput = document.getElementById('followUpDate');
+        const enableFollowUpDateCheckbox = document.getElementById('enableFollowUpDate'); // New checkbox ref
 
         // --- Variables (Adjusted) ---
         const patientId = "{{ patient_id }}";
@@ -195,10 +200,46 @@
         let drawVisual = null;
         const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096;
 
-        let originalAiSummary = ""; // To store the raw AI output
-
         // --- Initialization ---
-        document.addEventListener('DOMContentLoaded', populateAudioDevices);
+        document.addEventListener('DOMContentLoaded', () => {
+            populateAudioDevices();
+
+            // --- Event Listeners Setup ---
+            // Ensure listeners are added after DOM is ready
+
+            // Add Medicine Button
+            if(addMedicineButton) { // Check if element exists
+                addMedicineButton.addEventListener('click', () => addPrescriptionRow()); // Pass no args for empty row
+                console.log('Add Medicine listener attached.');
+            } else {
+                 console.error('addMedicineButton not found!');
+            }
+
+            // Remove Medicine Button (Event Delegation)
+             if(prescriptionTable) {
+                prescriptionTable.addEventListener('click', function(event) {
+                    if (event.target && event.target.classList.contains('remove-medicine-btn')) {
+                        removePrescriptionRow(event.target);
+                    }
+                });
+                console.log('Remove Medicine listener attached via delegation.');
+            } else {
+                 console.error('prescriptionTable not found!');
+            }
+
+             // Follow-up Date Checkbox
+             if(enableFollowUpDateCheckbox && followUpDateInput) {
+                 enableFollowUpDateCheckbox.addEventListener('change', function() {
+                     followUpDateInput.disabled = !this.checked;
+                     if (!this.checked) {
+                         followUpDateInput.value = ''; // Clear date if disabled
+                     }
+                 });
+                 console.log('Follow-up checkbox listener attached.');
+             } else {
+                  console.error('Follow-up checkbox or date input not found!');
+             }
+        });
 
         // --- Audio Device Selection (Unchanged) ---
         async function populateAudioDevices() {
@@ -462,21 +503,25 @@
                     throw new Error(errorMsg);
                 }
 
-                // --- Call populateEditor with the structured data (or error string) --- 
-                populateEditor(data.ai_draft); 
-                // Note: populateEditor handles showing/hiding editor, enabling button, setting errors based on input
+                // --- Store original text and Call populateEditor --- 
+                // Store raw text in hidden input and display in readonly textarea
+                const originalText = data.original_gemini_text || "(Original AI text not received)";
+                originalAiSummaryInput.value = originalText; 
+                aiDraftArea.value = originalText; 
+
+                populateEditor(data.ai_draft); // Pass structured object to editor populator
                 
-                // Update general status message
                 liveStatus.textContent = 'Transcript processed. Review details below.';
                 
             } catch (error) {
                 console.error('Error processing transcript text:', error);
                 liveErrorDisplay.textContent = `AI Processing Error: ${error.message}`;
                 processingIndicator.style.display = 'none';
-                confirmButton.disabled = true; // Keep save disabled on error
-                 // Ensure editor remains hidden on error
-                 prescriptionEditor.style.display = 'none';
-                 aiDraftContainer.style.display = 'none';
+                confirmButton.disabled = true;
+                prescriptionEditor.style.display = 'none';
+                // Show error in raw text area if available
+                aiDraftArea.value = error.message;
+                aiDraftContainer.style.display = 'block'; 
             }
             // --- End Processing --- 
         }
@@ -519,9 +564,9 @@
              // Gather data from the form fields
             const consultationData = {
                 patient_id: patientId,
-                doctor_id: doctorId, // Assuming doctor_id is available globally or fetched
-                raw_transcript: accumulatedFinalTranscript, // Send the full raw transcript
-                ai_summary: originalAiSummaryInput.value, // Send the original AI summary
+                doctor_id: doctorId,
+                raw_transcript: accumulatedFinalTranscript,
+                ai_summary: originalAiSummaryInput.value, // Send original Gemini text from hidden input
                 chief_complaints: chiefComplaintsInput.value.trim(),
                 clinical_findings: clinicalFindingsInput.value.trim(),
                 internal_notes: internalNotesInput.value.trim(),
@@ -529,7 +574,8 @@
                 procedures_conducted: proceduresConductedInput.value.trim(),
                 investigations: investigationsInput.value.trim(),
                 advice_given: adviceGivenInput.value.trim(),
-                follow_up_date: followUpDateInput.value || null, // Send null if empty
+                // Only include follow_up_date if checkbox is checked and date is not empty
+                follow_up_date: (enableFollowUpDateCheckbox.checked && followUpDateInput.value) ? followUpDateInput.value : null,
                 prescription_details: []
             };
 
@@ -605,11 +651,9 @@
                 // Display the error and don't populate/show the editor
                 liveErrorDisplay.textContent = `Error populating editor: ${structuredDraft}`;
                 prescriptionEditor.style.display = 'none';
-                aiDraftContainer.style.display = 'none';
-                confirmButton.disabled = true;
-                // Store the error message in the readonly area for reference
-                aiDraftArea.value = structuredDraft;
                 aiDraftContainer.style.display = 'block'; // Show container with error
+                aiDraftArea.value = structuredDraft; // Show error in text area
+                confirmButton.disabled = true;
                 return;
             }
 
@@ -617,6 +661,8 @@
             consultationForm.reset();
             prescriptionTable.innerHTML = '';
             liveErrorDisplay.textContent = '';
+            followUpDateInput.disabled = true; // Ensure date is disabled initially
+            enableFollowUpDateCheckbox.checked = false; // Ensure checkbox is unchecked initially
 
             // Populate fields directly from the structured object
             chiefComplaintsInput.value = structuredDraft.chief_complaints || '';
@@ -626,8 +672,18 @@
             proceduresConductedInput.value = structuredDraft.procedures_conducted || '';
             investigationsInput.value = structuredDraft.investigations || '';
             adviceGivenInput.value = structuredDraft.advice_given || '';
-            followUpDateInput.value = structuredDraft.follow_up_date || ''; // Assumes YYYY-MM-DD format
-
+            
+            // Populate follow-up date and enable checkbox if date exists
+            if (structuredDraft.follow_up_date) {
+                followUpDateInput.value = structuredDraft.follow_up_date;
+                enableFollowUpDateCheckbox.checked = true;
+                followUpDateInput.disabled = false;
+            } else {
+                 followUpDateInput.value = '';
+                 enableFollowUpDateCheckbox.checked = false;
+                 followUpDateInput.disabled = true;
+            }
+            
             // Populate prescription table
             if (structuredDraft.prescription_details && structuredDraft.prescription_details.length > 0) {
                 structuredDraft.prescription_details.forEach(item => {
@@ -638,13 +694,7 @@
                 addPrescriptionRow();
             }
 
-            // Store original summary for reference (stringify the object to keep it simple)
-            // Alternatively, we could rely on the ai_summary field sent during save.
-            const originalSummaryText = JSON.stringify(structuredDraft, null, 2);
-            originalAiSummaryInput.value = originalSummaryText; // Store in hidden input
-            aiDraftArea.value = originalSummaryText; // Put stringified JSON in readonly textarea
-
-            // Display the editor and the raw draft area
+            // Display the editor and the raw draft area (which now has original text)
             prescriptionEditor.style.display = 'block';
             aiDraftContainer.style.display = 'block';
 

@@ -207,21 +207,21 @@ Follow-Up Date:
 
         # Check for safety ratings or blocks
         if not gemini_response.candidates or not hasattr(gemini_response, 'text'):
-             # Handle blocked or invalid response structure
              ai_generated_draft_text = "(AI analysis failed or response structure invalid)"
              print("Gemini response was blocked or structure invalid.")
-             # Return the raw error string, frontend expects ai_draft key
-             return jsonify({"ai_draft": ai_generated_draft_text})
+             return jsonify({
+                 "ai_draft": ai_generated_draft_text, 
+                 "original_gemini_text": ai_generated_draft_text # Return error as original text too
+                 })
 
-        ai_generated_text = gemini_response.text
-        # Use triple quotes for multi-line f-string
-        print(f"""Gemini generated text ({len(ai_generated_text)} chars):
+        original_gemini_text = gemini_response.text # Store the original text
+        print(f"""Gemini generated text ({len(original_gemini_text)} chars):
 ---
-{ai_generated_text}
+{original_gemini_text}
 ---""")
 
         # --- Parse the Gemini Output ---
-        ai_draft_structured = empty_structure.copy() # Start with empty structure
+        ai_draft_structured = empty_structure.copy()
         ai_draft_structured["prescription_details"] = [] # Ensure list is empty
 
         # Helper function to extract section text (more robust)
@@ -246,18 +246,17 @@ Follow-Up Date:
             # If extracted content is effectively "None mentioned", return empty string
             return "" if content.lower().startswith(('none mentioned', 'n/a')) else content
 
-
-        ai_draft_structured["chief_complaints"] = extract_section(ai_generated_text, "Chief Complaints")
-        ai_draft_structured["clinical_findings"] = extract_section(ai_generated_text, "Clinical Findings")
-        ai_draft_structured["internal_notes"] = extract_section(ai_generated_text, "Internal Notes")
-        ai_draft_structured["diagnosis"] = extract_section(ai_generated_text, "Diagnosis")
-        ai_draft_structured["procedures_conducted"] = extract_section(ai_generated_text, "Procedures Conducted")
-        ai_draft_structured["investigations"] = extract_section(ai_generated_text, "Investigations")
-        ai_draft_structured["advice_given"] = extract_section(ai_generated_text, "Advice Given")
-        ai_draft_structured["follow_up_date"] = extract_section(ai_generated_text, "Follow-Up Date")
+        ai_draft_structured["chief_complaints"] = extract_section(original_gemini_text, "Chief Complaints")
+        ai_draft_structured["clinical_findings"] = extract_section(original_gemini_text, "Clinical Findings")
+        ai_draft_structured["internal_notes"] = extract_section(original_gemini_text, "Internal Notes")
+        ai_draft_structured["diagnosis"] = extract_section(original_gemini_text, "Diagnosis")
+        ai_draft_structured["procedures_conducted"] = extract_section(original_gemini_text, "Procedures Conducted")
+        ai_draft_structured["investigations"] = extract_section(original_gemini_text, "Investigations")
+        ai_draft_structured["advice_given"] = extract_section(original_gemini_text, "Advice Given")
+        ai_draft_structured["follow_up_date"] = extract_section(original_gemini_text, "Follow-Up Date")
 
         # Parse Prescription section
-        prescription_text = extract_section(ai_generated_text, "Prescription")
+        prescription_text = extract_section(original_gemini_text, "Prescription")
         if prescription_text:
             lines = prescription_text.strip().split('\n')
             for line in lines:
@@ -278,18 +277,22 @@ Follow-Up Date:
                         "duration": ""
                     })
         print("Parsed structured draft:", ai_draft_structured)
-        ai_generated_draft = ai_draft_structured # Assign the structured dict
+        ai_generated_draft = ai_draft_structured
 
     except Exception as e:
         import traceback
         print(f"Error during Gemini processing or parsing: {e}\n{traceback.format_exc()}")
         error_message = f"Gemini processing/parsing failed: {type(e).__name__}"
-        # Return the error message as a simple string under the ai_draft key for consistency
-        return jsonify({"ai_draft": f"ERROR: {error_message}"}), 500
+        # Return error string in both fields
+        return jsonify({
+            "ai_draft": f"ERROR: {error_message}",
+            "original_gemini_text": f"ERROR: {error_message}"
+            }), 500
 
-    # Return the structured draft
+    # Return both structured draft and original text
     return jsonify({
-        "ai_draft": ai_generated_draft
+        "ai_draft": ai_generated_draft,
+        "original_gemini_text": original_gemini_text
     })
 
 # UPDATED Route: Save consultation details (structured)

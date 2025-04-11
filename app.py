@@ -1,9 +1,6 @@
 import os
 import io
 import datetime
-import queue # Added for microphone streaming example
-import sys # Added for microphone streaming example
-import re # Added for microphone streaming example
 import time # Ensure time is imported
 
 from dotenv import load_dotenv
@@ -33,8 +30,7 @@ db_password = os.getenv('DB_PASSWORD')
 db_name = os.getenv('DB_NAME')
 
 # Audio parameters for streaming
-STREAMING_RATE = 16000
-STREAMING_CHUNK = int(STREAMING_RATE / 10)  # 100ms
+STREAMING_RATE = 48000 # Keep 48kHz based on browser reality
 
 # --- Initialize Flask App & Sock ---
 app = Flask(__name__)
@@ -135,50 +131,23 @@ def consultation_page(patient_id):
     doctor_id = 1
     return render_template('consultation.html', patient=patient, patient_id=patient_id, doctor_id=doctor_id)
 
-@app.route('/process_audio/<int:patient_id>', methods=['POST'])
-def process_audio(patient_id):
-    """Processes the recorded audio: STT -> Gemini -> Frontend."""
-    if 'audio_blob' not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
+# NEW Route: Process accumulated transcript text via Gemini
+@app.route('/process_transcript_text', methods=['POST'])
+def process_transcript_text():
+    """Processes the final transcript text using Gemini."""
+    data = request.json
+    if not data or 'transcript_text' not in data:
+        return jsonify({"error": "Missing 'transcript_text' in request"}), 400
 
-    audio_file = request.files['audio_blob']
+    raw_transcript = data['transcript_text']
+    print(f"Received transcript text for processing: {len(raw_transcript)} chars")
+
+    if not raw_transcript or raw_transcript == "(Listening...)":
+        return jsonify({"ai_generated_draft": "No valid transcript received to process."})
 
     try:
-        # --- Google Cloud STT ---
-        audio_content = audio_file.read()
-        audio = speech.RecognitionAudio(content=audio_content)
-        # Add required encoding and sample rate
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=48000, # UPDATED: Expect 48kHz based on previous logs
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-        )
-
-        # --- Use Long Running Recognize for audio > 60 seconds ---
-        print("Starting STT Long Running Recognize operation...")
-        operation = stt_client.long_running_recognize(config=config, audio=audio)
-
-        # Wait for the operation to complete (blocks the request here)
-        # Set a timeout (e.g., 300 seconds = 5 minutes) to avoid indefinite waits
-        # Adjust timeout based on expected maximum dictation length
-        stt_response = operation.result(timeout=300)
-        print("STT Long Running Recognize operation finished.")
-        # --- End STT Change ---
-
-        if not stt_response.results:
-            raw_transcript = "(No speech detected)"
-            ai_generated_draft = "Could not generate summary as no speech was detected."
-        else:
-            # Concatenate results if LRO splits into multiple parts (though unlikely for single blob)
-            raw_transcript = " ".join(
-                result.alternatives[0].transcript for result in stt_response.results if result.alternatives
-            )
-            if not raw_transcript:
-                 raw_transcript = "(No transcript generated despite results)" # Fallback
-
-            # --- Prepare Gemini Prompt ---
-            prompt = f"""You are a medical assistant. Analyze the following doctor's dictation transcript and extract the key information into a structured format. Output ONLY the structured information under these headings:
+        # --- Prepare Gemini Prompt ---
+        prompt = f"""You are a medical assistant. Analyze the following doctor's dictation transcript and extract the key information into a structured format. Output ONLY the structured information under these headings:
 Chief Complaint:
 Key Symptoms:
 Assessment/Diagnosis:
@@ -189,24 +158,25 @@ Transcript:
 {raw_transcript}
 """
 
-            # --- Call Gemini API ---
-            gemini_response = gemini_model.generate_content(prompt)
+        # --- Call Gemini API ---
+        print("Calling Gemini API...")
+        gemini_response = gemini_model.generate_content(prompt)
+        print("Gemini API call finished.")
 
-            # Check for safety ratings or blocks if necessary (basic check)
-            if not gemini_response.candidates or not gemini_response.candidates[0].content.parts:
-                 ai_generated_draft = "(AI analysis failed or was blocked)"
-            else:
-                ai_generated_draft = gemini_response.text # Access text directly
+        # Check for safety ratings or blocks if necessary (basic check)
+        if not gemini_response.candidates or not gemini_response.candidates[0].content.parts:
+             ai_generated_draft = "(AI analysis failed or was blocked)"
+             print("Gemini response was blocked or empty.")
+        else:
+            ai_generated_draft = gemini_response.text # Access text directly
+            print(f"Gemini generated draft: {len(ai_generated_draft)} chars")
 
     except Exception as e:
-        # Catch potential timeout errors from operation.result() as well
-        print(f"Error during STT or Gemini processing: {e}")
-        # Provide a more specific error if possible
-        error_message = f"Processing failed: {type(e).__name__}: {e}"
+        print(f"Error during Gemini processing: {e}")
+        error_message = f"Gemini processing failed: {type(e).__name__}: {e}"
         return jsonify({"error": error_message}), 500
 
     return jsonify({
-        "raw_transcript": raw_transcript,
         "ai_generated_draft": ai_generated_draft
     })
 

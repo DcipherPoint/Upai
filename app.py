@@ -358,175 +358,242 @@ def save_consultation():
     else:
         return jsonify({"error": "Failed to save consultation to database"}), 500
 
-# UPDATED Route: PDF Download (fixed encoding error and deprecations)
+# UPDATED Route: PDF Download (Layout Refinements)
 @app.route('/download_pdf/<int:consultation_id>')
 def download_pdf(consultation_id):
     """Generates and sends a PDF for the given consultation using structured data."""
     # Fetch structured consultation details
-    query = """
-    SELECT c.*,
-           p.name AS patient_name, p.dob AS patient_dob, p.gender AS patient_gender, p.address AS patient_address,
-           d.name AS doctor_name
-           -- Add doctor details like M.B.B.S etc. from User table if needed
-    FROM Consultation c
-    JOIN Patient p ON c.patient_id = p.id
-    JOIN User d ON c.doctor_id = d.id
-    WHERE c.id = %s
-    """
+    query = """SELECT c.*, p.name AS patient_name, p.dob AS patient_dob, p.gender AS patient_gender, p.address AS patient_address, d.name AS doctor_name FROM Consultation c JOIN Patient p ON c.patient_id = p.id JOIN User d ON c.doctor_id = d.id WHERE c.id = %s"""
     consultation_data = fetch_one(query, (consultation_id,))
 
     if not consultation_data:
         return "Consultation not found", 404
 
     try:
-        # --- Generate PDF using FPDF2 (Updated for structure & modern API) ---
-        pdf = FPDF()
+        pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Helvetica", size=10)
+        page_width = pdf.w - 2 * pdf.l_margin # Usable page width
 
         # --- Header ---
+        header_y_start = pdf.get_y()
         pdf.set_font("Helvetica", 'B', 11)
-        pdf.cell(0, 5, f"Dr. {consultation_data.get('doctor_name', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Use new API
+        # FIX: Don't add "Dr." prefix, assume it's in the database name if needed
+        pdf.cell(page_width * 0.6, 5, f"{consultation_data.get('doctor_name', 'N/A')}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", size=9)
-        pdf.cell(0, 4, "M.B.B.S., M.D., M.S. | Reg. No: XXXXXX", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
-        pdf.cell(0, 4, "Mob. No: XXXXXXXX", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
-        pdf.ln(4)
+        pdf.cell(page_width * 0.6, 4, "M.B.B.S., M.D., M.S. | Reg. No: XXXXXX", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        pdf.cell(page_width * 0.6, 4, "Mob. No: XXXXXXXX", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        header_y_end_left = pdf.get_y()
 
-        # Clinic Details (Placeholder)
-        current_y = pdf.get_y()
-        pdf.set_xy(130, 10) # Position to the right
+        # Clinic Details (Aligned Right)
+        pdf.set_y(header_y_start) # Reset Y to align top
+        pdf.set_x(pdf.l_margin + page_width * 0.6) # Move to the right column position
         pdf.set_font("Helvetica", 'B', 11)
-        pdf.cell(0, 5, "Care Clinic", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(page_width * 0.4, 5, "Care Clinic", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(pdf.l_margin + page_width * 0.6)
         pdf.set_font("Helvetica", size=9)
-        pdf.cell(0, 4, "Kothrud, Pune - 411038.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, "Ph: 094233 80390", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, "Timing: 09:00 AM - 02:00 PM | Closed: Thursday", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_y(current_y + 20) # Ensure we are below the header block
-        pdf.set_x(10)
+        pdf.multi_cell(page_width * 0.4, 4, "Kothrud, Pune - 411038.", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(pdf.l_margin + page_width * 0.6)
+        pdf.multi_cell(page_width * 0.4, 4, "Ph: 094233 80390", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(pdf.l_margin + page_width * 0.6)
+        pdf.multi_cell(page_width * 0.4, 4, "Timing: 09:00 AM - 02:00 PM | Closed: Thursday", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        header_y_end_right = pdf.get_y()
 
-        pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
-        pdf.ln(5)
+        # Move below the taller header block
+        pdf.set_y(max(header_y_end_left, header_y_end_right) + 2)
+
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y()) # Full width line
+        pdf.ln(4) # Space after header line
 
         # --- Patient Details & Date ---
         # Calculate Age (Example)
         age = 'N/A'
         if dob := consultation_data.get('patient_dob'):
             today = datetime.date.today()
-            age_val = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-            age = f"{age_val} Y"
-            
-        patient_display = f"ID: {consultation_data['patient_id']} - {consultation_data['patient_name']} ({consultation_data.get('patient_gender', 'N/A')} / {age})"
+            try:
+                age_val = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                age = f"{age_val} Y"
+            except TypeError:
+                age = "Invalid DOB"
+                
+        patient_gender = consultation_data.get('patient_gender', 'N/A') or 'N/A' # Handle None or empty string
+        patient_display = f"ID: {consultation_data['patient_id']} - {consultation_data['patient_name']} ({patient_gender} / {age})"
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(120, 5, patient_display, new_x=XPos.RIGHT, new_y=YPos.TOP) # Cell 1 (Patient Info)
+        pdf.cell(page_width * 0.7, 5, patient_display, border=0, new_x=XPos.RIGHT, new_y=YPos.TOP)
         pdf.set_font("Helvetica", '', 10)
         date_str = consultation_data['consultation_date'].strftime("%d-%b-%Y, %I:%M %p")
-        pdf.cell(0, 5, f"Date: {date_str}", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Cell 2 (Date), move to next line
+        pdf.cell(page_width * 0.3, 5, f"Date: {date_str}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         pdf.set_font("Helvetica", '', 9)
-        pdf.cell(0, 4, f"Address: {consultation_data.get('patient_address', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, f"Weight(kg): N/A  Height (cms): N/A  BP: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, f"Referred By: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, f"Known History Of: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(2)
+        pdf.cell(page_width, 4, f"Address: {consultation_data.get('patient_address') or 'N/A'}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width, 4, f"Weight(kg): N/A  Height (cms): N/A  BP: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width, 4, f"Referred By: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width, 4, f"Known History Of: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(4) # More space before consultation details
 
-        # --- Consultation Details ---
-        col_width = 95
+        # --- Consultation Details (Two Columns - Reworked Logic) ---
+        col_width = page_width / 2 - 2 # Column width with small gap
+        line_height = 5
+        section_padding_bottom = 2 # Space after content within a section box
+        row_gap = 2 # Vertical space between rows of sections
 
-        def add_section(heading, content):
+        # --- Helper Function to calculate multicell height ---
+        def get_multicell_height(width, text):
+            pdf.set_font("Helvetica", '', 9) # Ensure correct font is set for calculation
+            lines = pdf.multi_cell(width, line_height, text or "N/A", border=0, align='L', split_only=True)
+            return len(lines) * line_height + section_padding_bottom
+
+        # --- Helper to draw a bordered section box with content ---
+        def draw_bordered_section(x, y, height, heading, content):
+            pdf.set_xy(x, y)
+            # Draw top border
+            pdf.line(x, y, x + col_width, y)
+            # Heading
             pdf.set_font("Helvetica", 'B', 10)
-            pdf.cell(col_width, 6, heading, border='T', new_x=XPos.RIGHT, new_y=YPos.TOP) # Keep cursor on same line
-            pdf.ln(4)
+            pdf.cell(col_width, 6, " " + heading, border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Add space before heading
+            # Content
+            content_start_y = pdf.get_y()
+            pdf.set_x(x + 1) # Indent content slightly
             pdf.set_font("Helvetica", '', 9)
-            start_y = pdf.get_y()
-            pdf.multi_cell(col_width - 5, 5, content or "N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            end_y = pdf.get_y()
-            pdf.set_xy(pdf.get_x() + col_width, start_y) # Move to start of next column
-            return end_y
+            pdf.multi_cell(col_width - 2, line_height, content or "N/A", border=0, align='L')
+            # Draw side borders based on calculated height
+            pdf.line(x, y, x, y + height)
+            pdf.line(x + col_width, y, x + col_width, y + height)
+            # Draw bottom border
+            pdf.line(x, y + height, x + col_width, y + height)
 
-        # First Row: Chief Complaints & Clinical Findings
-        y_complaints = add_section("Chief Complaints", consultation_data.get('chief_complaints'))
-        pdf.set_xy(10 + col_width, pdf.get_y() - (y_complaints - (pdf.get_y() - 6))) # Reset Y
-        y_findings = add_section("Clinical Findings", consultation_data.get('clinical_findings'))
-        pdf.set_y(max(y_complaints, y_findings))
-        pdf.set_x(10)
-        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
-        pdf.ln(1)
+        # --- Draw Sections Row by Row ---
+        current_y = pdf.get_y()
+        left_x = pdf.l_margin
+        right_x = pdf.l_margin + col_width + 4
 
-        # Second Row: Notes & Diagnosis
-        y_notes = add_section("Notes", consultation_data.get('internal_notes'))
-        pdf.set_xy(10 + col_width, pdf.get_y() - (y_notes - (pdf.get_y() - 6))) # Reset Y
-        y_diag = add_section("Diagnosis", consultation_data.get('diagnosis'))
-        pdf.set_y(max(y_notes, y_diag))
-        pdf.set_x(10)
-        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
-        pdf.ln(1)
-        
-        # Third Row: Procedures & Investigations
-        y_proc = add_section("Procedures conducted", consultation_data.get('procedures_conducted'))
-        pdf.set_xy(10 + col_width, pdf.get_y() - (y_proc - (pdf.get_y() - 6))) # Reset Y
-        y_inv = add_section("Investigations", consultation_data.get('investigations'))
-        pdf.set_y(max(y_proc, y_inv))
-        pdf.set_x(10)
-        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
-        pdf.ln(1)
+        # Row 1: Chief Complaints & Clinical Findings
+        cc_content = consultation_data.get('chief_complaints')
+        cf_content = consultation_data.get('clinical_findings')
+        h1 = get_multicell_height(col_width - 2, cc_content) + 6 # Add heading height
+        h2 = get_multicell_height(col_width - 2, cf_content) + 6
+        max_h_row1 = max(h1, h2)
+        draw_bordered_section(left_x, current_y, max_h_row1, "Chief Complaints", cc_content)
+        draw_bordered_section(right_x, current_y, max_h_row1, "Clinical Findings", cf_content)
+        current_y += max_h_row1 + row_gap
 
-        # --- Prescription Table ---
+        # Row 2: Notes & Diagnosis
+        notes_content = consultation_data.get('internal_notes') # Use internal_notes field
+        diag_content = consultation_data.get('diagnosis')
+        h1 = get_multicell_height(col_width - 2, notes_content) + 6
+        h2 = get_multicell_height(col_width - 2, diag_content) + 6
+        max_h_row2 = max(h1, h2)
+        draw_bordered_section(left_x, current_y, max_h_row2, "Notes", notes_content)
+        draw_bordered_section(right_x, current_y, max_h_row2, "Diagnosis", diag_content)
+        current_y += max_h_row2 + row_gap
+
+        # Row 3: Procedures & Investigations
+        proc_content = consultation_data.get('procedures_conducted')
+        inv_content = consultation_data.get('investigations')
+        h1 = get_multicell_height(col_width - 2, proc_content) + 6
+        h2 = get_multicell_height(col_width - 2, inv_content) + 6
+        max_h_row3 = max(h1, h2)
+        draw_bordered_section(left_x, current_y, max_h_row3, "Procedures conducted", proc_content)
+        draw_bordered_section(right_x, current_y, max_h_row3, "Investigations", inv_content)
+        current_y += max_h_row3 + 4 # Extra gap before prescription
+        pdf.set_y(current_y)
+
+        # --- Prescription Table (Unchanged from previous refinement) ---
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(0, 8, "R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 8, "R", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_fill_color(230, 230, 230)
         pdf.set_font("Helvetica", 'B', 9)
+        
+        # Define column widths
+        col_sr = 10
+        col_med = 70
+        col_dose = 50
+        col_dur = page_width - col_sr - col_med - col_dose 
+        row_height = 6 # Base row height
+
         # Table Header
-        pdf.cell(10, 6, "Sr.", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(70, 6, "Medicine Name", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(60, 6, "Dosage", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(50, 6, "Duration", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        start_x = pdf.get_x()
+        pdf.cell(col_sr, row_height, "Sr.", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(col_med, row_height, "Medicine Name", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(col_dose, row_height, "Dosage", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(col_dur, row_height, "Duration", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         pdf.set_font("Helvetica", '', 9)
-        prescription_list = json.loads(consultation_data.get('prescription_details', '[]'))
+        pdf.set_fill_color(255, 255, 255) # Reset fill
+        prescription_list = json.loads(consultation_data.get('prescription_details', '[]') or '[]') # Handle None
+        
         if prescription_list:
             for i, item in enumerate(prescription_list, 1):
-                pdf.cell(10, 6, str(i), border=1, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-                pdf.cell(70, 6, item.get('medicine', ''), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
-                pdf.cell(60, 6, item.get('dosage', ''), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
-                pdf.cell(50, 6, item.get('duration', ''), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        else:
-            pdf.cell(190, 6, "No medication prescribed.", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(5)
+                start_y = pdf.get_y()
+                start_x = pdf.get_x()
+                
+                # Calculate height needed for each cell in this row
+                pdf.set_xy(start_x + col_sr, start_y) # Position for Medicine cell
+                pdf.multi_cell(col_med, line_height, item.get('medicine', ''), border=0, align='L')
+                h_med = pdf.get_y() - start_y
 
-        # --- Advice & Follow Up ---
+                pdf.set_xy(start_x + col_sr + col_med, start_y) # Position for Dosage cell
+                pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border=0, align='L')
+                h_dose = pdf.get_y() - start_y
+
+                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y) # Position for Duration cell
+                pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border=0, align='L')
+                h_dur = pdf.get_y() - start_y
+
+                # Determine max height for the row
+                max_h = max(h_med, h_dose, h_dur, row_height) # Ensure minimum height
+
+                # Draw the cells with borders and calculated height
+                pdf.set_xy(start_x, start_y)
+                pdf.cell(col_sr, max_h, str(i), border=1, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+                pdf.set_xy(start_x + col_sr, start_y) # Need xy for multi_cell positioning
+                pdf.multi_cell(col_med, line_height, item.get('medicine', ''), border='LR', align='L') # LR borders only for multi_cell
+                pdf.set_xy(start_x + col_sr + col_med, start_y)
+                pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border='LR', align='L')
+                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y)
+                pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border='LR', align='L')
+                
+                # Draw bottom border for the row
+                pdf.set_y(start_y + max_h) # Move Y below the row
+                pdf.line(start_x, pdf.get_y(), start_x + page_width, pdf.get_y())
+                pdf.set_x(start_x) # Reset X for next potential row
+        else:
+             pdf.cell(page_width, row_height, "No medication prescribed.", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(5) # Space after table
+
+        # --- Advice & Follow Up (Improved Spacing) ---
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(0, 6, "Advice Given:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width, 6, "Advice Given:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", '', 9)
-        pdf.multi_cell(0, 5, consultation_data.get('advice_given') or "N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(3)
+        pdf.multi_cell(page_width, line_height, consultation_data.get('advice_given') or "N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(4) # Increased space
 
         pdf.set_font("Helvetica", 'B', 10)
         follow_up = consultation_data.get('follow_up_date')
         follow_up_str = follow_up.strftime("%d-%m-%Y") if follow_up else "N/A"
-        pdf.cell(0, 6, f"Follow Up: {follow_up_str}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(10)
+        pdf.cell(page_width, 6, f"Follow Up: {follow_up_str}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(12) # More space before signature
 
         # --- Signature ---
-        current_y = pdf.get_y() # Get y before potentially long signature block
-        pdf.set_y(max(current_y, 250)) # Move signature towards bottom, but ensure space
-        pdf.cell(0, 5, "Signature", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        current_y = pdf.get_y()
+        pdf.set_y(max(current_y, pdf.h - pdf.b_margin - 25)) # Move towards bottom margin
+        pdf.cell(page_width, 5, "Signature", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(0, 5, consultation_data.get('doctor_name', 'N/A'), align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width, 5, consultation_data.get('doctor_name', 'N/A'), border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", '', 9)
-        pdf.cell(0, 4, "M.B.B.S., M.D., M.S.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        pdf.cell(page_width, 4, "M.B.B.S., M.D., M.S.", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
 
-        # --- Save PDF to Buffer --- 
+        # --- Save PDF to Buffer ---
         pdf_buffer = io.BytesIO()
-        # pdf.output() returns bytes directly, no need to encode
-        # Remove deprecated 'dest' parameter
-        pdf_output = pdf.output() 
+        pdf_output = pdf.output()
         pdf_buffer.write(pdf_output)
         pdf_buffer.seek(0)
 
         return send_file(
             pdf_buffer,
             as_attachment=True,
-            download_name=f"consultation_{consultation_id}_{consultation_data['patient_name']}.pdf",
+            download_name=f"consultation_{consultation_id}_{consultation_data['patient_name'].replace(' ', '_')}.pdf", # Sanitize filename
             mimetype='application/pdf'
         )
 

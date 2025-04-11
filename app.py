@@ -2,6 +2,8 @@ import os
 import io
 import datetime
 import time # Ensure time is imported
+import re # Import regex for parsing
+import json # Import json for handling prescription data
 
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for
@@ -15,6 +17,7 @@ import google.generativeai as genai # Updated import for Gemini API
 # Import Google API core exceptions
 import google.api_core.exceptions
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos # Import XPos and YPos for modern API
 
 # Load environment variables from .env file
 load_dotenv()
@@ -131,10 +134,10 @@ def consultation_page(patient_id):
     doctor_id = 1
     return render_template('consultation.html', patient=patient, patient_id=patient_id, doctor_id=doctor_id)
 
-# NEW Route: Process accumulated transcript text via Gemini
+# UPDATED Route: Process accumulated transcript text via Gemini
 @app.route('/process_transcript_text', methods=['POST'])
 def process_transcript_text():
-    """Processes the final transcript text using Gemini."""
+    """Processes the final transcript text using Gemini, aiming for structured output."""
     data = request.json
     if not data or 'transcript_text' not in data:
         return jsonify({"error": "Missing 'transcript_text' in request"}), 400
@@ -142,20 +145,59 @@ def process_transcript_text():
     raw_transcript = data['transcript_text']
     print(f"Received transcript text for processing: {len(raw_transcript)} chars")
 
+    # Define the empty structure here for reuse
+    empty_structure = {
+        "chief_complaints": "",
+        "clinical_findings": "",
+        "internal_notes": "", # Added internal notes field
+        "diagnosis": "",
+        "procedures_conducted": "",
+        "prescription_details": [],
+        "investigations": "",
+        "advice_given": "",
+        "follow_up_date": ""
+    }
+
     if not raw_transcript or raw_transcript == "(Listening...)":
-        return jsonify({"ai_generated_draft": "No valid transcript received to process."})
+        print("Received empty or placeholder transcript.")
+        return jsonify({"ai_draft": empty_structure}) # Return empty structure
 
     try:
-        # --- Prepare Gemini Prompt ---
-        prompt = f"""You are a medical assistant. Analyze the following doctor's dictation transcript and extract the key information into a structured format. Output ONLY the structured information under these headings:
-Chief Complaint:
-Key Symptoms:
-Assessment/Diagnosis:
-Prescribed Medications (Format: Drug Name - Dosage - Frequency - Duration):
-Follow-up Instructions:
+        # --- Prepare Gemini Prompt (Updated for more structure) ---
+        prompt = f"""Analyze the following doctor-patient consultation transcript. Extract the relevant medical information and structure it clearly under the specified headings. Be concise and accurate. If information for a heading is not present, leave it blank or write 'None mentioned'.
 
-Transcript:
+TRANSCRIPT:
+```
 {raw_transcript}
+```
+
+EXTRACTED INFORMATION:
+Chief Complaints:
+[Extract chief complaints here]
+
+Clinical Findings:
+[Extract clinical findings here]
+
+Internal Notes:
+[Extract any notes clearly intended for the doctor only, if any. If none, state 'None mentioned']
+
+Diagnosis:
+[Extract diagnosis here]
+
+Procedures Conducted:
+[Extract procedures conducted, if any. If none, state 'None mentioned']
+
+Prescription:
+[List each prescribed medicine on a new line in the format: Medicine Name | Dosage | Duration/Total. Example: Tab Metformin | 500mg | 1 tab twice daily for 30 days. If no prescription, state 'None mentioned']
+
+Investigations:
+[List investigations ordered, if any. Example: CBC, X-Ray Chest. If none, state 'None mentioned']
+
+Advice Given:
+[Extract advice given to the patient]
+
+Follow-Up Date:
+[Extract follow-up date, if mentioned, in YYYY-MM-DD format. If not mentioned, state 'None mentioned']
 """
 
         # --- Call Gemini API ---
@@ -163,40 +205,148 @@ Transcript:
         gemini_response = gemini_model.generate_content(prompt)
         print("Gemini API call finished.")
 
-        # Check for safety ratings or blocks if necessary (basic check)
-        if not gemini_response.candidates or not gemini_response.candidates[0].content.parts:
-             ai_generated_draft = "(AI analysis failed or was blocked)"
-             print("Gemini response was blocked or empty.")
-        else:
-            ai_generated_draft = gemini_response.text # Access text directly
-            print(f"Gemini generated draft: {len(ai_generated_draft)} chars")
+        # Check for safety ratings or blocks
+        if not gemini_response.candidates or not hasattr(gemini_response, 'text'):
+             # Handle blocked or invalid response structure
+             ai_generated_draft_text = "(AI analysis failed or response structure invalid)"
+             print("Gemini response was blocked or structure invalid.")
+             # Return the raw error string, frontend expects ai_draft key
+             return jsonify({"ai_draft": ai_generated_draft_text})
+
+        ai_generated_text = gemini_response.text
+        # Use triple quotes for multi-line f-string
+        print(f"""Gemini generated text ({len(ai_generated_text)} chars):
+---
+{ai_generated_text}
+---""")
+
+        # --- Parse the Gemini Output ---
+        ai_draft_structured = empty_structure.copy() # Start with empty structure
+        ai_draft_structured["prescription_details"] = [] # Ensure list is empty
+
+        # Helper function to extract section text (more robust)
+        def extract_section(text, heading):
+            # Regex explanation:
+            # ^                       - Start of line (due to re.MULTILINE)
+            # {re.escape(heading)}    - The literal heading string, escaping special chars
+            # :?                      - Optional colon
+            # \s*                    - Optional whitespace
+            # (                       - Start capturing group 1
+            #   [\s\S]*?            - Any character (including newlines), non-greedy
+            # )                       - End capturing group 1
+            # (?=                     - Positive lookahead (pattern must follow, but isn't captured)
+            #    \n^[A-Z][a-zA-Z ]+:?  - Newline, then a likely next heading (starts with capital, has letters/spaces, optional colon)
+            #   |                      - OR
+            #    \Z                   - End of the entire string
+            # )
+            # Handle case where "None mentioned" is the value
+            regex_str = f"^{re.escape(heading)}:?\\s*([\s\S]*?)(?=\n^[A-Z][a-zA-Z ]+:?|\Z)"
+            match = re.search(regex_str, text, re.MULTILINE | re.IGNORECASE)
+            content = match.group(1).strip() if match else ""
+            # If extracted content is effectively "None mentioned", return empty string
+            return "" if content.lower().startswith(('none mentioned', 'n/a')) else content
+
+
+        ai_draft_structured["chief_complaints"] = extract_section(ai_generated_text, "Chief Complaints")
+        ai_draft_structured["clinical_findings"] = extract_section(ai_generated_text, "Clinical Findings")
+        ai_draft_structured["internal_notes"] = extract_section(ai_generated_text, "Internal Notes")
+        ai_draft_structured["diagnosis"] = extract_section(ai_generated_text, "Diagnosis")
+        ai_draft_structured["procedures_conducted"] = extract_section(ai_generated_text, "Procedures Conducted")
+        ai_draft_structured["investigations"] = extract_section(ai_generated_text, "Investigations")
+        ai_draft_structured["advice_given"] = extract_section(ai_generated_text, "Advice Given")
+        ai_draft_structured["follow_up_date"] = extract_section(ai_generated_text, "Follow-Up Date")
+
+        # Parse Prescription section
+        prescription_text = extract_section(ai_generated_text, "Prescription")
+        if prescription_text:
+            lines = prescription_text.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line or line.lower().startswith(('none mentioned', 'n/a')):
+                    continue
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) == 3:
+                    ai_draft_structured["prescription_details"].append({
+                        "medicine": parts[0],
+                        "dosage": parts[1],
+                        "duration": parts[2]
+                    })
+                elif len(parts) > 0 and parts[0]: # Fallback for less structured lines
+                    ai_draft_structured["prescription_details"].append({
+                        "medicine": line, # Use the whole line as name
+                        "dosage": "",
+                        "duration": ""
+                    })
+        print("Parsed structured draft:", ai_draft_structured)
+        ai_generated_draft = ai_draft_structured # Assign the structured dict
 
     except Exception as e:
-        print(f"Error during Gemini processing: {e}")
-        error_message = f"Gemini processing failed: {type(e).__name__}: {e}"
-        return jsonify({"error": error_message}), 500
+        import traceback
+        print(f"Error during Gemini processing or parsing: {e}\n{traceback.format_exc()}")
+        error_message = f"Gemini processing/parsing failed: {type(e).__name__}"
+        # Return the error message as a simple string under the ai_draft key for consistency
+        return jsonify({"ai_draft": f"ERROR: {error_message}"}), 500
 
+    # Return the structured draft
     return jsonify({
-        "ai_generated_draft": ai_generated_draft
+        "ai_draft": ai_generated_draft
     })
 
-@app.route('/save_consultation/<int:patient_id>', methods=['POST'])
-def save_consultation(patient_id):
-    """Saves the confirmed consultation notes to the database."""
+# UPDATED Route: Save consultation details (structured)
+@app.route('/save_consultation', methods=['POST']) # Removed patient_id from URL
+def save_consultation():
+    """Saves the confirmed structured consultation data to the database."""
     data = request.json
-    if not data or 'final_notes' not in data or 'raw_transcript' not in data or 'doctor_id' not in data:
-        return jsonify({"error": "Missing required data (final_notes, raw_transcript, doctor_id)"}), 400
+    required_fields = ["patient_id", "doctor_id", "raw_transcript", "ai_summary",
+                       "chief_complaints", "clinical_findings", "internal_notes",
+                       "diagnosis", "procedures_conducted", "prescription_details",
+                       "investigations", "advice_given"] # follow_up_date is optional
+                       
+    if not data or not all(field in data for field in required_fields):
+        missing = [field for field in required_fields if field not in data] if data else required_fields
+        return jsonify({"error": f"Missing required data fields: {', '.join(missing)}"}), 400
 
-    final_notes = data['final_notes']
-    raw_transcript = data['raw_transcript']
-    doctor_id = data['doctor_id'] # Get doctor_id from request
-    ai_summary = data.get('ai_summary', '') # Optional initial AI summary
+    # Extract data (handle optional follow_up_date)
+    patient_id = data.get("patient_id")
+    doctor_id = data.get("doctor_id")
+    raw_transcript = data.get("raw_transcript", "")
+    ai_summary = data.get("ai_summary", "")
+    chief_complaints = data.get("chief_complaints", "")
+    clinical_findings = data.get("clinical_findings", "")
+    internal_notes = data.get("internal_notes", "")
+    diagnosis = data.get("diagnosis", "")
+    procedures_conducted = data.get("procedures_conducted", "")
+    investigations = data.get("investigations", "")
+    advice_given = data.get("advice_given", "")
+    follow_up_date_str = data.get("follow_up_date") # Get as string
+    prescription_details_list = data.get("prescription_details", []) # Get as list
+
+    # Convert follow_up_date string to Date object or None
+    follow_up_date = None
+    if follow_up_date_str:
+        try:
+            follow_up_date = datetime.datetime.strptime(follow_up_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            print(f"Warning: Invalid follow-up date format received: {follow_up_date_str}. Saving as NULL.")
+            # Optionally return error: return jsonify({"error": "Invalid follow_up_date format. Use YYYY-MM-DD."}), 400
+            follow_up_date = None # Ensure it's None if format is wrong
+
+    # Serialize prescription details list to JSON string for DB
+    prescription_details_json = json.dumps(prescription_details_list)
+
     consultation_date = datetime.datetime.now()
 
-    query = ("INSERT INTO Consultation "
-             "(patient_id, doctor_id, consultation_date, raw_transcript, ai_summary, final_prescription_notes) "
-             "VALUES (%s, %s, %s, %s, %s, %s)")
-    params = (patient_id, doctor_id, consultation_date, raw_transcript, ai_summary, final_notes)
+    # Updated SQL Query
+    query = ("""INSERT INTO Consultation (
+                patient_id, doctor_id, consultation_date, raw_transcript, ai_summary,
+                chief_complaints, clinical_findings, internal_notes, diagnosis,
+                procedures_conducted, prescription_details, investigations, advice_given,
+                follow_up_date
+             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
+    params = (patient_id, doctor_id, consultation_date, raw_transcript, ai_summary,
+              chief_complaints, clinical_findings, internal_notes, diagnosis,
+              procedures_conducted, prescription_details_json, investigations, advice_given,
+              follow_up_date) # Pass None if date was invalid/empty
 
     consultation_id = execute_query(query, params)
 
@@ -205,14 +355,16 @@ def save_consultation(patient_id):
     else:
         return jsonify({"error": "Failed to save consultation to database"}), 500
 
+# UPDATED Route: PDF Download (fixed encoding error and deprecations)
 @app.route('/download_pdf/<int:consultation_id>')
 def download_pdf(consultation_id):
-    """Generates and sends a PDF for the given consultation."""
-    # Fetch consultation details
+    """Generates and sends a PDF for the given consultation using structured data."""
+    # Fetch structured consultation details
     query = """
-    SELECT c.consultation_date, c.final_prescription_notes,
-           p.name AS patient_name, p.dob AS patient_dob,
+    SELECT c.*,
+           p.name AS patient_name, p.dob AS patient_dob, p.gender AS patient_gender, p.address AS patient_address,
            d.name AS doctor_name
+           -- Add doctor details like M.B.B.S etc. from User table if needed
     FROM Consultation c
     JOIN Patient p ON c.patient_id = p.id
     JOIN User d ON c.doctor_id = d.id
@@ -224,61 +376,160 @@ def download_pdf(consultation_id):
         return "Consultation not found", 404
 
     try:
-        # --- Generate PDF using FPDF2 ---
+        # --- Generate PDF using FPDF2 (Updated for structure & modern API) ---
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Helvetica", size=12)
+        pdf.set_font("Helvetica", size=10)
 
-        # Header
-        pdf.set_font("Helvetica", 'B', 16)
-        pdf.cell(0, 10, "Consultation Summary", 0, 1, 'C')
-        pdf.ln(10)
+        # --- Header ---
+        pdf.set_font("Helvetica", 'B', 11)
+        pdf.cell(0, 5, f"Dr. {consultation_data.get('doctor_name', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Use new API
+        pdf.set_font("Helvetica", size=9)
+        pdf.cell(0, 4, "M.B.B.S., M.D., M.S. | Reg. No: XXXXXX", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        pdf.cell(0, 4, "Mob. No: XXXXXXXX", new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        pdf.ln(4)
 
-        # Patient and Doctor Info
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(40, 10, "Patient Name:", 0, 0)
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, 10, consultation_data['patient_name'], 0, 1)
+        # Clinic Details (Placeholder)
+        current_y = pdf.get_y()
+        pdf.set_xy(130, 10) # Position to the right
+        pdf.set_font("Helvetica", 'B', 11)
+        pdf.cell(0, 5, "Care Clinic", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", size=9)
+        pdf.cell(0, 4, "Kothrud, Pune - 411038.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, "Ph: 094233 80390", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, "Timing: 09:00 AM - 02:00 PM | Closed: Thursday", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_y(current_y + 20) # Ensure we are below the header block
+        pdf.set_x(10)
 
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(40, 10, "Patient DOB:", 0, 0)
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, 10, str(consultation_data.get('patient_dob', 'N/A')), 0, 1)
-
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(40, 10, "Doctor Name:", 0, 0)
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, 10, consultation_data['doctor_name'], 0, 1)
-
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(40, 10, "Consultation Date:", 0, 0)
-        pdf.set_font("Helvetica", '', 12)
-        pdf.cell(0, 10, consultation_data['consultation_date'].strftime("%Y-%m-%d %H:%M:%S"), 0, 1)
-        pdf.ln(10)
-
-        # Final Notes / Prescription
-        pdf.set_font("Helvetica", 'B', 12)
-        pdf.cell(0, 10, "Final Prescription & Notes:", 0, 1)
-        pdf.set_font("Helvetica", '', 12)
-        # Use multi_cell for potentially long text
-        pdf.multi_cell(0, 7, consultation_data['final_prescription_notes'])
+        pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
         pdf.ln(5)
 
-        # Save PDF to a BytesIO buffer
+        # --- Patient Details & Date ---
+        # Calculate Age (Example)
+        age = 'N/A'
+        if dob := consultation_data.get('patient_dob'):
+            today = datetime.date.today()
+            age_val = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            age = f"{age_val} Y"
+            
+        patient_display = f"ID: {consultation_data['patient_id']} - {consultation_data['patient_name']} ({consultation_data.get('patient_gender', 'N/A')} / {age})"
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(120, 5, patient_display, new_x=XPos.RIGHT, new_y=YPos.TOP) # Cell 1 (Patient Info)
+        pdf.set_font("Helvetica", '', 10)
+        date_str = consultation_data['consultation_date'].strftime("%d-%b-%Y, %I:%M %p")
+        pdf.cell(0, 5, f"Date: {date_str}", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Cell 2 (Date), move to next line
+
+        pdf.set_font("Helvetica", '', 9)
+        pdf.cell(0, 4, f"Address: {consultation_data.get('patient_address', 'N/A')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, f"Weight(kg): N/A  Height (cms): N/A  BP: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, f"Referred By: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, f"Known History Of: N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(2)
+
+        # --- Consultation Details ---
+        col_width = 95
+
+        def add_section(heading, content):
+            pdf.set_font("Helvetica", 'B', 10)
+            pdf.cell(col_width, 6, heading, border='T', new_x=XPos.RIGHT, new_y=YPos.TOP) # Keep cursor on same line
+            pdf.ln(4)
+            pdf.set_font("Helvetica", '', 9)
+            start_y = pdf.get_y()
+            pdf.multi_cell(col_width - 5, 5, content or "N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            end_y = pdf.get_y()
+            pdf.set_xy(pdf.get_x() + col_width, start_y) # Move to start of next column
+            return end_y
+
+        # First Row: Chief Complaints & Clinical Findings
+        y_complaints = add_section("Chief Complaints", consultation_data.get('chief_complaints'))
+        pdf.set_xy(10 + col_width, pdf.get_y() - (y_complaints - (pdf.get_y() - 6))) # Reset Y
+        y_findings = add_section("Clinical Findings", consultation_data.get('clinical_findings'))
+        pdf.set_y(max(y_complaints, y_findings))
+        pdf.set_x(10)
+        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
+        pdf.ln(1)
+
+        # Second Row: Notes & Diagnosis
+        y_notes = add_section("Notes", consultation_data.get('internal_notes'))
+        pdf.set_xy(10 + col_width, pdf.get_y() - (y_notes - (pdf.get_y() - 6))) # Reset Y
+        y_diag = add_section("Diagnosis", consultation_data.get('diagnosis'))
+        pdf.set_y(max(y_notes, y_diag))
+        pdf.set_x(10)
+        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
+        pdf.ln(1)
+        
+        # Third Row: Procedures & Investigations
+        y_proc = add_section("Procedures conducted", consultation_data.get('procedures_conducted'))
+        pdf.set_xy(10 + col_width, pdf.get_y() - (y_proc - (pdf.get_y() - 6))) # Reset Y
+        y_inv = add_section("Investigations", consultation_data.get('investigations'))
+        pdf.set_y(max(y_proc, y_inv))
+        pdf.set_x(10)
+        pdf.line(10, pdf.get_y(), 10 + col_width * 2, pdf.get_y())
+        pdf.ln(1)
+
+        # --- Prescription Table ---
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, 8, "R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.set_font("Helvetica", 'B', 9)
+        # Table Header
+        pdf.cell(10, 6, "Sr.", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(70, 6, "Medicine Name", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(60, 6, "Dosage", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(50, 6, "Duration", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+        pdf.set_font("Helvetica", '', 9)
+        prescription_list = json.loads(consultation_data.get('prescription_details', '[]'))
+        if prescription_list:
+            for i, item in enumerate(prescription_list, 1):
+                pdf.cell(10, 6, str(i), border=1, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+                pdf.cell(70, 6, item.get('medicine', ''), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
+                pdf.cell(60, 6, item.get('dosage', ''), border=1, new_x=XPos.RIGHT, new_y=YPos.TOP)
+                pdf.cell(50, 6, item.get('duration', ''), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        else:
+            pdf.cell(190, 6, "No medication prescribed.", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(5)
+
+        # --- Advice & Follow Up ---
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, 6, "Advice Given:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", '', 9)
+        pdf.multi_cell(0, 5, consultation_data.get('advice_given') or "N/A", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(3)
+
+        pdf.set_font("Helvetica", 'B', 10)
+        follow_up = consultation_data.get('follow_up_date')
+        follow_up_str = follow_up.strftime("%d-%m-%Y") if follow_up else "N/A"
+        pdf.cell(0, 6, f"Follow Up: {follow_up_str}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(10)
+
+        # --- Signature ---
+        current_y = pdf.get_y() # Get y before potentially long signature block
+        pdf.set_y(max(current_y, 250)) # Move signature towards bottom, but ensure space
+        pdf.cell(0, 5, "Signature", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", 'B', 10)
+        pdf.cell(0, 5, consultation_data.get('doctor_name', 'N/A'), align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", '', 9)
+        pdf.cell(0, 4, "M.B.B.S., M.D., M.S.", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+
+        # --- Save PDF to Buffer --- 
         pdf_buffer = io.BytesIO()
-        pdf_output = pdf.output(dest='S').encode('latin-1') # Output as bytes
+        # pdf.output() returns bytes directly, no need to encode
+        # Remove deprecated 'dest' parameter
+        pdf_output = pdf.output() 
         pdf_buffer.write(pdf_output)
         pdf_buffer.seek(0)
 
         return send_file(
             pdf_buffer,
             as_attachment=True,
-            download_name=f"consultation_{consultation_id}.pdf",
+            download_name=f"consultation_{consultation_id}_{consultation_data['patient_name']}.pdf",
             mimetype='application/pdf'
         )
 
     except Exception as e:
-        print(f"Error generating PDF: {e}")
+        import traceback
+        print(f"Error generating PDF: {e}\n{traceback.format_exc()}")
         return jsonify({"error": f"Failed to generate PDF: {e}"}), 500
 
 # --- WebSocket Route for Live Transcription Demo ---

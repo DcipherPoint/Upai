@@ -35,6 +35,20 @@
         #audioVisualizer { width: 100%; height: 60px; background-color: #333; display: block; margin-top: 10px; border-radius: 4px; }
         #activeMicDisplay { font-style: italic; color: #555; text-align: center; margin-top: 5px; font-size: 0.9em; min-height: 1em; }
         #processingIndicator { display: none; text-align: center; margin-top: 15px; font-weight: bold; color: #ffc107; }
+        #prescriptionEditor { display: none; margin-top: 20px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; }
+        #prescriptionEditor label { display: block; margin-top: 10px; font-weight: bold; }
+        #prescriptionEditor input[type="text"],
+        #prescriptionEditor input[type="date"],
+        #prescriptionEditor textarea { width: 95%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
+        #prescriptionTable .prescription-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dotted #eee; }
+        #prescriptionTable .prescription-row input { flex: 1; }
+        #prescriptionTable .prescription-row button { background-color: #dc3545; color: white; border: none; padding: 5px 8px; font-size: 0.8em; cursor: pointer; border-radius: 3px; }
+        #prescriptionTable .prescription-row button:hover { background-color: #c82333; }
+        .add-medicine-btn { background-color: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+        .add-medicine-btn:hover { background-color: #218838; }
+
+        /* Hide raw AI draft area initially */
+        #aiDraftContainer { display: none; }
     </style>
 </head>
 <body>
@@ -73,12 +87,55 @@
 
             <div id="processingIndicator">Processing transcript with AI...</div>
 
-            <h4>AI Generated Draft (Editable)</h4>
-            <textarea id="aiDraftArea" placeholder="AI summary and prescription draft will appear here after processing."></textarea>
-            <!-- <input type="hidden" id="initialAiSummary"> Removed, no longer needed -->
+            <!-- Container for AI Draft (hidden initially) -->
+            <div id="aiDraftContainer">
+                <h4>AI Generated Draft (Reference)</h4>
+                <textarea id="aiDraftArea" placeholder="AI summary and prescription draft will appear here after processing." readonly></textarea>
+            </div>
+
+            <!-- Prescription Editor Section (hidden initially) -->
+            <div id="prescriptionEditor">
+                <h3>Consultation Details Editor</h3>
+                <form id="consultationForm">
+                     <!-- Patient/Doctor IDs are handled in JS -->
+                    <input type="hidden" id="originalAiSummary"> <!-- To store the original AI summary -->
+
+                    <label for="chiefComplaints">Chief Complaints:</label>
+                    <textarea id="chiefComplaints" name="chief_complaints" rows="3"></textarea>
+
+                    <label for="clinicalFindings">Clinical Findings:</label>
+                    <textarea id="clinicalFindings" name="clinical_findings" rows="3"></textarea>
+
+                    <label for="internalNotes">Internal Notes:</label>
+                    <textarea id="internalNotes" name="internal_notes" rows="2" placeholder="Optional private notes"></textarea>
+
+                    <label for="diagnosis">Diagnosis:</label>
+                    <textarea id="diagnosis" name="diagnosis" rows="2"></textarea>
+
+                    <label for="proceduresConducted">Procedures Conducted:</label>
+                    <textarea id="proceduresConducted" name="procedures_conducted" rows="2"></textarea>
+
+                    <h4>Prescription</h4>
+                    <div id="prescriptionTable">
+                        <!-- Prescription rows will be added here -->
+                    </div>
+                    <button type="button" id="addMedicineButton" class="add-medicine-btn">+ Add Medicine</button>
+
+                    <label for="investigations">Investigations:</label>
+                    <textarea id="investigations" name="investigations" rows="2"></textarea>
+
+                    <label for="adviceGiven">Advice Given:</label>
+                    <textarea id="adviceGiven" name="advice_given" rows="2"></textarea>
+
+                    <label for="followUpDate">Follow-Up Date:</label>
+                    <input type="date" id="followUpDate" name="follow_up_date">
+
+                </form>
+            </div>
+            <!-- End Prescription Editor Section -->
 
             <div class="button-group actions">
-                <button id="confirmButton" class="confirm" disabled>Confirm & Save Consultation</button>
+                <button id="confirmButton" class="confirm" disabled>Review/Edit & Save Consultation</button>
                 <button id="downloadButton" class="download">Download PDF</button>
             </div>
         </div>
@@ -103,6 +160,22 @@
         const canvasCtx = canvas.getContext('2d');
         const processingIndicator = document.getElementById('processingIndicator'); // New indicator
 
+        const aiDraftContainer = document.getElementById('aiDraftContainer');
+        const prescriptionEditor = document.getElementById('prescriptionEditor');
+        const prescriptionTable = document.getElementById('prescriptionTable');
+        const addMedicineButton = document.getElementById('addMedicineButton');
+        const consultationForm = document.getElementById('consultationForm');
+        const originalAiSummaryInput = document.getElementById('originalAiSummary');
+        // Input field refs for the editor
+        const chiefComplaintsInput = document.getElementById('chiefComplaints');
+        const clinicalFindingsInput = document.getElementById('clinicalFindings');
+        const internalNotesInput = document.getElementById('internalNotes');
+        const diagnosisInput = document.getElementById('diagnosis');
+        const proceduresConductedInput = document.getElementById('proceduresConducted');
+        const investigationsInput = document.getElementById('investigations');
+        const adviceGivenInput = document.getElementById('adviceGiven');
+        const followUpDateInput = document.getElementById('followUpDate');
+
         // --- Variables (Adjusted) ---
         const patientId = "{{ patient_id }}";
         const doctorId = "{{ doctor_id }}";
@@ -121,6 +194,8 @@
         let bufferLength = 0;
         let drawVisual = null;
         const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096;
+
+        let originalAiSummary = ""; // To store the raw AI output
 
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', populateAudioDevices);
@@ -356,8 +431,7 @@
 
             // --- Process Accumulated Transcript --- 
             const finalTranscriptText = accumulatedFinalTranscript.trim();
-            console.log(`Final Accumulated Transcript (${finalTranscriptText.length} chars):
-${finalTranscriptText}`);
+            console.log(`Final Accumulated Transcript (${finalTranscriptText.length} chars):\n${finalTranscriptText}`);
 
             if (!finalTranscriptText) {
                 liveErrorDisplay.textContent = "No final transcript captured to process.";
@@ -367,6 +441,10 @@ ${finalTranscriptText}`);
 
             processingIndicator.style.display = 'block'; // Show processing indicator
             liveErrorDisplay.textContent = '';
+            // Reset UI elements before fetch
+            prescriptionEditor.style.display = 'none';
+            aiDraftContainer.style.display = 'none';
+            confirmButton.disabled = true;
 
             try {
                 const response = await fetch('/process_transcript_text', {
@@ -376,21 +454,29 @@ ${finalTranscriptText}`);
                 });
 
                 processingIndicator.style.display = 'none';
-                const data = await response.json();
+                const data = await response.json(); // data is { ai_draft: { ... structured object ... } } or { ai_draft: "Error string" }
 
                 if (!response.ok) {
-                    throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                    // Try to get error from ai_draft if it's a string, or use generic message
+                    const errorMsg = (typeof data.ai_draft === 'string') ? data.ai_draft : `HTTP error! status: ${response.status}`;
+                    throw new Error(errorMsg);
                 }
 
-                aiDraftArea.value = data.ai_generated_draft || '(No AI draft received)';
-                confirmButton.disabled = false; // Enable saving
-                liveStatus.textContent = 'Transcript processed. Review AI draft.';
-
+                // --- Call populateEditor with the structured data (or error string) --- 
+                populateEditor(data.ai_draft); 
+                // Note: populateEditor handles showing/hiding editor, enabling button, setting errors based on input
+                
+                // Update general status message
+                liveStatus.textContent = 'Transcript processed. Review details below.';
+                
             } catch (error) {
                 console.error('Error processing transcript text:', error);
                 liveErrorDisplay.textContent = `AI Processing Error: ${error.message}`;
                 processingIndicator.style.display = 'none';
                 confirmButton.disabled = true; // Keep save disabled on error
+                 // Ensure editor remains hidden on error
+                 prescriptionEditor.style.display = 'none';
+                 aiDraftContainer.style.display = 'none';
             }
             // --- End Processing --- 
         }
@@ -425,42 +511,77 @@ ${finalTranscriptText}`);
 
         // Save and Download Functions (Update save to use accumulated transcript)
          confirmButton.addEventListener('click', async () => {
-            const finalNotes = aiDraftArea.value.trim();
-            // Use the accumulated transcript variable
-            const rawTranscript = accumulatedFinalTranscript.trim();
-
-            if (!finalNotes) {
-                liveErrorDisplay.textContent = 'Cannot save empty notes.'; // Use live error display
-                return;
-            }
+            console.log('Confirm button clicked.');
             confirmButton.disabled = true;
-            liveStatus.textContent = 'Saving consultation...';
-            liveErrorDisplay.textContent = '';
+            confirmButton.textContent = 'Saving...';
+            liveErrorDisplay.textContent = ''; // Clear previous errors
+
+             // Gather data from the form fields
+            const consultationData = {
+                patient_id: patientId,
+                doctor_id: doctorId, // Assuming doctor_id is available globally or fetched
+                raw_transcript: accumulatedFinalTranscript, // Send the full raw transcript
+                ai_summary: originalAiSummaryInput.value, // Send the original AI summary
+                chief_complaints: chiefComplaintsInput.value.trim(),
+                clinical_findings: clinicalFindingsInput.value.trim(),
+                internal_notes: internalNotesInput.value.trim(),
+                diagnosis: diagnosisInput.value.trim(),
+                procedures_conducted: proceduresConductedInput.value.trim(),
+                investigations: investigationsInput.value.trim(),
+                advice_given: adviceGivenInput.value.trim(),
+                follow_up_date: followUpDateInput.value || null, // Send null if empty
+                prescription_details: []
+            };
+
+             // Gather prescription details
+            const prescriptionRows = prescriptionTable.querySelectorAll('.prescription-row');
+            prescriptionRows.forEach(row => {
+                const medicineInput = row.querySelector('input[name="medicine_name"]');
+                const dosageInput = row.querySelector('input[name="dosage"]');
+                const durationInput = row.querySelector('input[name="duration"]');
+
+                if (medicineInput && dosageInput && durationInput && medicineInput.value.trim()) {
+                    consultationData.prescription_details.push({
+                        medicine: medicineInput.value.trim(),
+                        dosage: dosageInput.value.trim(),
+                        duration: durationInput.value.trim()
+                    });
+                }
+            });
+
+             console.log('Sending data to /save_consultation:', consultationData);
+
             try {
-                const response = await fetch(`/save_consultation/${patientId}`, {
+                const response = await fetch('/save_consultation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        final_notes: finalNotes,
-                        raw_transcript: rawTranscript, // Send accumulated transcript
-                        // ai_summary: initialSummary, // Can remove if not needed
-                        doctor_id: doctorId
-                    })
+                    body: JSON.stringify(consultationData)
                 });
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                     throw new Error(data.error || `HTTP error! status: ${response.status}`);
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({})); // Try to get JSON error, fallback to empty obj
+                    throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData.error || 'Unknown server error'}`);
                 }
-                currentConsultationId = data.consultation_id;
-                liveStatus.textContent = `Consultation saved (ID: ${currentConsultationId}). PDF available.`;
-                downloadButton.style.display = 'inline-block';
-                confirmButton.disabled = true;
-                startRecordingButton.disabled = false;
+
+                const result = await response.json();
+                console.log('Save Response:', result);
+
+                if (result.success && result.consultation_id) {
+                    currentConsultationId = result.consultation_id;
+                    liveErrorDisplay.textContent = `Consultation ${currentConsultationId} saved successfully!`;
+                    confirmButton.textContent = 'Saved!';
+                    downloadButton.style.display = 'inline-block'; // Show download button
+                    // Optionally disable editing fields after saving
+                    // disableEditorFields();
+                } else {
+                    throw new Error(result.error || 'Failed to save consultation.');
+                }
+
             } catch (error) {
                 console.error('Error saving consultation:', error);
-                liveErrorDisplay.textContent = `Save Error: ${error.message}`;
-                liveStatus.textContent = 'Failed to save.';
-                confirmButton.disabled = false;
+                liveErrorDisplay.textContent = `Error saving: ${error.message}`;
+                confirmButton.disabled = false; // Re-enable button on error
+                confirmButton.textContent = 'Review/Edit & Save Consultation';
             }
         });
 
@@ -468,9 +589,113 @@ ${finalTranscriptText}`);
             if (currentConsultationId) {
                 window.location.href = `/download_pdf/${currentConsultationId}`;
             } else {
-                liveErrorDisplay.textContent = 'Cannot download PDF. No consultation saved yet.';
+                liveErrorDisplay.textContent = 'Cannot download PDF. Consultation not saved yet.';
             }
         });
+
+        // --- New Editor Helper Functions ---
+
+        // UPDATED: Populates editor using the structured object received from the backend.
+        function populateEditor(structuredDraft) {
+            console.log("Populating editor with structured draft:", structuredDraft);
+
+            // Check if we received the structured object or an error string
+            if (typeof structuredDraft === 'string') {
+                console.error("Received error string instead of structured draft:", structuredDraft);
+                // Display the error and don't populate/show the editor
+                liveErrorDisplay.textContent = `Error populating editor: ${structuredDraft}`;
+                prescriptionEditor.style.display = 'none';
+                aiDraftContainer.style.display = 'none';
+                confirmButton.disabled = true;
+                // Store the error message in the readonly area for reference
+                aiDraftArea.value = structuredDraft;
+                aiDraftContainer.style.display = 'block'; // Show container with error
+                return;
+            }
+
+            // Clear previous values and errors
+            consultationForm.reset();
+            prescriptionTable.innerHTML = '';
+            liveErrorDisplay.textContent = '';
+
+            // Populate fields directly from the structured object
+            chiefComplaintsInput.value = structuredDraft.chief_complaints || '';
+            clinicalFindingsInput.value = structuredDraft.clinical_findings || '';
+            internalNotesInput.value = structuredDraft.internal_notes || '';
+            diagnosisInput.value = structuredDraft.diagnosis || '';
+            proceduresConductedInput.value = structuredDraft.procedures_conducted || '';
+            investigationsInput.value = structuredDraft.investigations || '';
+            adviceGivenInput.value = structuredDraft.advice_given || '';
+            followUpDateInput.value = structuredDraft.follow_up_date || ''; // Assumes YYYY-MM-DD format
+
+            // Populate prescription table
+            if (structuredDraft.prescription_details && structuredDraft.prescription_details.length > 0) {
+                structuredDraft.prescription_details.forEach(item => {
+                    addPrescriptionRow(item.medicine, item.dosage, item.duration);
+                });
+            } else {
+                // Add one empty row if no prescriptions were parsed
+                addPrescriptionRow();
+            }
+
+            // Store original summary for reference (stringify the object to keep it simple)
+            // Alternatively, we could rely on the ai_summary field sent during save.
+            const originalSummaryText = JSON.stringify(structuredDraft, null, 2);
+            originalAiSummaryInput.value = originalSummaryText; // Store in hidden input
+            aiDraftArea.value = originalSummaryText; // Put stringified JSON in readonly textarea
+
+            // Display the editor and the raw draft area
+            prescriptionEditor.style.display = 'block';
+            aiDraftContainer.style.display = 'block';
+
+            // Re-enable confirm button
+            confirmButton.disabled = false;
+            confirmButton.textContent = 'Confirm & Save Consultation';
+        }
+
+        // UPDATED: Accepts optional values to pre-fill the row
+        function addPrescriptionRow(medicine = '', dosage = '', duration = '') {
+            const row = document.createElement('div');
+            row.classList.add('prescription-row');
+            // Use value attribute to set initial values
+            row.innerHTML = `
+                <input type="text" name="medicine_name" placeholder="Medicine Name" value="${escapeHtml(medicine)}">
+                <input type="text" name="dosage" placeholder="Dosage" value="${escapeHtml(dosage)}">
+                <input type="text" name="duration" placeholder="Duration/Total" value="${escapeHtml(duration)}">
+                <button type="button" class="remove-medicine-btn">X</button>
+            `;
+            prescriptionTable.appendChild(row);
+        }
+
+        function removePrescriptionRow(buttonElement) {
+            const row = buttonElement.closest('.prescription-row');
+            if (row) {
+                row.remove();
+            }
+        }
+
+        // Helper to escape HTML special characters for setting input values safely
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') return '';
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+         }
+
+         // Optional: Disable form fields after successful save
+        // function disableEditorFields() {
+        //     const elements = consultationForm.elements;
+        //     for (let i = 0; i < elements.length; i++) {
+        //         elements[i].disabled = true;
+        //     }
+        //     addMedicineButton.disabled = true;
+        //     const removeButtons = prescriptionTable.querySelectorAll('.remove-medicine-btn');
+        //     removeButtons.forEach(btn => btn.disabled = true);
+        // }
+
 
     </script>
 </body>

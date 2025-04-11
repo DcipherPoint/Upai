@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Care Assistant</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 600px; margin: auto; background-color: #f4f7f6; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; text-align: center; }
+        ul { list-style: none; padding: 0; }
+        li { margin-bottom: 10px; background-color: #e9ecef; padding: 10px; border-radius: 4px; }
+        a { color: #007bff; text-decoration: none; font-weight: bold; }
+        a:hover { text-decoration: underline; }
+        p { text-align: center; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Smart Care Assistant</h1>
+        <h2>Doctor Consultation Portal</h2>
+
+        {% if patients %}
+            <h3>Select Patient to Start Consultation:</h3>
+            <ul>
+                {% for patient in patients %}
+                <li>
+                    <a href="{{ url_for('consultation_page', patient_id=patient.id) }}">{{ patient.name }} (ID: {{ patient.id }})</a>
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No patients found in the database. Please add patients or check the database connection.</p>
+            <p><a href="{{ url_for('consultation_page', patient_id=1) }}">Try Demo Consultation (Patient ID 1)</a></p>
+        {% endif %}
+
+    </div>
+</body>
+</html> 

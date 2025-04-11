@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consultation - {{ patient.name }}</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: auto; background-color: #f4f7f6; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; text-align: center; margin-bottom: 20px; }
+        h3 { color: #333; margin-top: 25px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        h4 { margin-bottom: 5px; margin-top: 15px; color: #444; }
+        .patient-info { text-align: center; font-size: 1.2em; margin-bottom: 15px; color: #555; }
+        .controls button, .actions button, .live-controls button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 1em; margin: 5px; transition: background-color 0.3s; }
+        .controls button:disabled, .actions button:disabled, .live-controls button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        .controls button:hover:not(:disabled) { background-color: #0056b3; }
+        .actions button.confirm { background-color: #28a745; }
+        .actions button.confirm:hover:not(:disabled) { background-color: #218838; }
+        .actions button.download { background-color: #17a2b8; display: none; /* Hidden initially */ }
+        .actions button.download:hover:not(:disabled) { background-color: #138496; }
+        .live-controls button.start-live { background-color: #ffc107; color: #333; }
+        .live-controls button.start-live:hover:not(:disabled) { background-color: #e0a800; }
+        .live-controls button.stop-live { background-color: #dc3545; }
+        .live-controls button.stop-live:hover:not(:disabled) { background-color: #c82333; }
+        .display-area { margin-top: 10px; background-color: #e9ecef; padding: 15px; border-radius: 5px; min-height: 50px; white-space: pre-wrap; font-family: monospace; }
+        textarea { width: 95%; min-height: 150px; margin-top: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; }
+        #loadingIndicator, #liveStatus { display: none; text-align: center; margin-top: 15px; font-weight: bold; color: #dc3545; }
+        #statusMessage { text-align: center; margin-top: 10px; color: #6c757d; }
+        #errorDisplay, #liveErrorDisplay { color: #dc3545; font-weight: bold; margin-top: 15px; text-align: center; min-height: 1.2em; }
+        .button-group { text-align: center; margin-bottom: 20px; }
+        label { font-weight: bold; margin-right: 5px; }
+        select { padding: 5px; border-radius: 4px; }
+        .section { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px dashed #ddd; }
+        .live-transcript-section { background-color: #fff8e1; padding: 15px; border-radius: 5px; border: 1px solid #ffeeba; }
+        #audioVisualizer { width: 100%; height: 60px; background-color: #333; display: block; margin-top: 10px; border-radius: 4px; }
+        #activeMicDisplay { font-style: italic; color: #555; text-align: center; margin-top: 5px; font-size: 0.9em; min-height: 1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Smart Care Assistant - Upai</h1>
+        <h2>Consultation Record</h2>
+        <div class="patient-info">Patient: <strong>{{ patient.name }}</strong> (ID: {{ patient_id }})</div>
+
+        <!-- Audio Input Selection -->
+        <div class="button-group audio-selection">
+            <label for="audioSource">Select Microphone:</label>
+            <select id="audioSource">
+                <option value="default">Default Microphone</option>
+            </select>
+            <div id="activeMicDisplay"></div> <!-- Display for active mic -->
+        </div>
+        <hr>
+
+        <!-- Main Recording Section -->
+        <div class="section main-recording">
+            <h3>Record Consultation for Processing</h3>
+            <div id="statusMessage">Ready to record consultation notes.</div>
+            <div id="errorDisplay"></div>
+            <div class="button-group controls">
+                <button id="startButton">Start Recording</button>
+                <button id="stopButton" disabled>Stop Recording & Process</button>
+            </div>
+            <div id="loadingIndicator">Processing audio... Please wait.</div>
+
+            <h4>Raw Transcript (Post-Processing)</h4>
+            <div id="transcriptArea" class="display-area">(Transcript will appear here after processing)</div>
+
+            <h4>AI Generated Draft (Editable)</h4>
+            <textarea id="aiDraftArea" placeholder="AI summary and prescription draft will appear here after processing. You can edit this text before saving."></textarea>
+            <input type="hidden" id="initialAiSummary">
+
+            <div class="button-group actions">
+                <button id="confirmButton" class="confirm" disabled>Confirm & Save Consultation</button>
+                <button id="downloadButton" class="download">Download PDF</button>
+            </div>
+        </div>
+        <hr>
+
+        <!-- Live Transcript Demo Section -->
+        <div class="section live-transcript-section">
+            <h3>Live Transcript Demo (Independent)</h3>
+            <p style="font-size: 0.9em; color: #6c757d; text-align: center; margin-bottom: 10px;">
+                <i>Note: Live transcription requires the browser to send audio in a specific format (LINEAR16/PCM).
+                This may not work reliably in all browsers and is for demonstration only. The main "Record Consultation" feature is more robust.</i>
+            </p>
+            <div id="liveStatus" style="color: #17a2b8;">Ready for live demo.</div>
+            <div id="liveErrorDisplay"></div>
+            <div class="button-group live-controls">
+                <button id="startLiveButton" class="start-live">Start Live Demo</button>
+                <button id="stopLiveButton" class="stop-live" disabled>Stop Live Demo</button>
+            </div>
+            <h4>Live Audio Input Visualizer</h4>
+            <canvas id="audioVisualizer"></canvas> <!-- Canvas for visualization -->
+            <h4>Live Transcript (Interim Results)</h4>
+            <div id="liveTranscriptArea" class="display-area">(Live transcript will appear here during the demo)</div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Element References ---
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const confirmButton = document.getElementById('confirmButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const transcriptArea = document.getElementById('transcriptArea');
+        const aiDraftArea = document.getElementById('aiDraftArea');
+        const initialAiSummaryInput = document.getElementById('initialAiSummary');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const statusMessage = document.getElementById('statusMessage');
+        const errorDisplay = document.getElementById('errorDisplay');
+        const audioSourceSelect = document.getElementById('audioSource');
+        const activeMicDisplay = document.getElementById('activeMicDisplay'); // Ref for mic display
+
+        const startLiveButton = document.getElementById('startLiveButton');
+        const stopLiveButton = document.getElementById('stopLiveButton');
+        const liveTranscriptArea = document.getElementById('liveTranscriptArea');
+        const liveStatus = document.getElementById('liveStatus');
+        const liveErrorDisplay = document.getElementById('liveErrorDisplay');
+        const canvas = document.getElementById('audioVisualizer'); // Ref for canvas
+        const canvasCtx = canvas.getContext('2d');
+
+        // --- Variables ---
+        const patientId = "{{ patient_id }}";
+        const doctorId = "{{ doctor_id }}";
+        let mediaRecorderMain; // Recorder for main processing
+        let audioChunksMain = [];
+        let currentConsultationId = null;
+        let liveWebSocket = null;
+        let liveStream = null;
+
+        // Web Audio API variables for visualization AND processing
+        let audioCtx = null;
+        let analyser = null;
+        let source = null;
+        let scriptNode = null; // Added ScriptProcessorNode
+        let dataArray = null;
+        let bufferLength = 0;
+        let drawVisual = null; // To hold the requestAnimationFrame ID
+        const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096; // Common buffer size
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', populateAudioDevices);
+
+        // --- Audio Device Selection ---
+        async function populateAudioDevices() {
+            activeMicDisplay.textContent = 'Checking permissions...';
+            try {
+                // Need to get permission first to enumerate devices with labels
+                // Use a temporary stream
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Stop the tracks immediately after permission is granted
+                tempStream.getTracks().forEach(track => track.stop());
+
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
+
+                audioSourceSelect.innerHTML = ''; // Clear existing options
+                if (audioInputDevices.length === 0) {
+                     audioSourceSelect.innerHTML = '<option value="default">No microphones found</option>';
+                     activeMicDisplay.textContent = 'No microphones detected.';
+                     return;
+                }
+
+                let defaultSelected = false;
+                audioInputDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Microphone ${index + 1}`;
+                    // Select the first non-default device if available
+                    if (device.deviceId !== 'default' && !defaultSelected) {
+                        // option.selected = true; // Optionally pre-select first real mic
+                        defaultSelected = true;
+                    }
+                    audioSourceSelect.appendChild(option);
+                });
+                updateActiveMicDisplay(); // Update display initially
+                audioSourceSelect.addEventListener('change', updateActiveMicDisplay);
+
+            } catch (err) {
+                console.error('Error enumerating audio devices:', err);
+                audioSourceSelect.innerHTML = '<option value="default">Error finding devices</option>';
+                activeMicDisplay.textContent = 'Error: Check mic permissions.';
+                errorDisplay.textContent = 'Could not list microphones. Grant permission and refresh.';
+                liveErrorDisplay.textContent = 'Could not list microphones.';
+            }
+        }
+
+        function getSelectedAudioConstraints() {
+            const deviceId = audioSourceSelect.value;
+            if (deviceId && deviceId !== 'default') {
+                return { audio: { deviceId: { exact: deviceId } } };
+            }
+            return { audio: true }; // Default device
+        }
+
+        function updateActiveMicDisplay() {
+            const selectedOption = audioSourceSelect.options[audioSourceSelect.selectedIndex];
+            if (selectedOption) {
+                activeMicDisplay.textContent = `Using: ${selectedOption.text}`;
+            } else {
+                activeMicDisplay.textContent = 'Select a microphone.';
+            }
+        }
+
+        // --- Main Recording & Processing Logic (uses selected device) ---
+        startButton.addEventListener('click', async () => {
+            if (mediaRecorderMain && mediaRecorderMain.state === 'recording') {
+                 errorDisplay.textContent = 'Please stop the Live Demo first.';
+                 return;
+            }
+            updateActiveMicDisplay(); // Ensure display is current
+            const constraints = getSelectedAudioConstraints();
+            try {
+                // Use a separate stream for the main recorder
+                const mainStream = await navigator.mediaDevices.getUserMedia(constraints);
+                mediaRecorderMain = new MediaRecorder(mainStream);
+
+                mediaRecorderMain.ondataavailable = event => {
+                    if (event.data.size > 0) {
+                        audioChunksMain.push(event.data);
+                    }
+                };
+
+                mediaRecorderMain.onstart = () => {
+                    startButton.disabled = true;
+                    stopButton.disabled = false;
+                    confirmButton.disabled = true;
+                    downloadButton.style.display = 'none';
+                    transcriptArea.textContent = '(Recording...)';
+                    aiDraftArea.value = '';
+                    initialAiSummaryInput.value = '';
+                    statusMessage.textContent = `Recording consultation (mic: ${audioSourceSelect.options[audioSourceSelect.selectedIndex]?.text || 'Default'})...`;
+                    errorDisplay.textContent = '';
+                    currentConsultationId = null;
+                    audioChunksMain = [];
+                };
+
+                mediaRecorderMain.onstop = async () => {
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                    loadingIndicator.style.display = 'block';
+                    statusMessage.textContent = 'Processing full audio...';
+                    // Stop the tracks for the main stream when recording stops
+                    mainStream.getTracks().forEach(track => track.stop());
+
+                    const mimeType = mediaRecorderMain.mimeType || 'audio/wav';
+                    const audioBlob = new Blob(audioChunksMain, { type: mimeType });
+                    const formData = new FormData();
+                    formData.append('audio_blob', audioBlob, 'recording.wav');
+
+                    try {
+                        const response = await fetch(`/process_audio/${patientId}`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        loadingIndicator.style.display = 'none';
+                        const data = await response.json();
+                        if (!response.ok) {
+                            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                        }
+                        transcriptArea.textContent = data.raw_transcript || '(No transcript received)';
+                        aiDraftArea.value = data.ai_generated_draft || '(No AI draft received)';
+                        initialAiSummaryInput.value = data.ai_generated_draft || '';
+                        confirmButton.disabled = false;
+                        statusMessage.textContent = 'Processing complete. Review draft.';
+                    } catch (error) {
+                        console.error('Error processing audio:', error);
+                        loadingIndicator.style.display = 'none';
+                        errorDisplay.textContent = `Error processing audio: ${error.message}`;
+                        statusMessage.textContent = 'Processing failed.';
+                        startButton.disabled = false;
+                        stopButton.disabled = true;
+                        confirmButton.disabled = true;
+                    }
+                };
+                mediaRecorderMain.start();
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                errorDisplay.textContent = `Mic Error: ${err.message}. Check permissions.`;
+                statusMessage.textContent = 'Microphone access failed.';
+            }
+        });
+
+        stopButton.addEventListener('click', () => {
+            if (mediaRecorderMain && mediaRecorderMain.state === 'recording') {
+                mediaRecorderMain.stop(); // onstop handler will stop tracks
+            }
+        });
+
+        // --- Save Consultation Logic (Unchanged) ---
+        confirmButton.addEventListener('click', async () => {
+            const finalNotes = aiDraftArea.value.trim();
+            const rawTranscript = transcriptArea.textContent;
+            const initialSummary = initialAiSummaryInput.value;
+            if (!finalNotes) {
+                errorDisplay.textContent = 'Cannot save empty notes.';
+                return;
+            }
+            confirmButton.disabled = true;
+            statusMessage.textContent = 'Saving consultation...';
+            errorDisplay.textContent = '';
+            try {
+                const response = await fetch(`/save_consultation/${patientId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        final_notes: finalNotes,
+                        raw_transcript: rawTranscript,
+                        ai_summary: initialSummary,
+                        doctor_id: doctorId
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                     throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                }
+                currentConsultationId = data.consultation_id;
+                statusMessage.textContent = `Consultation saved (ID: ${currentConsultationId}). PDF available.`;
+                downloadButton.style.display = 'inline-block';
+                confirmButton.disabled = true;
+                startButton.disabled = false;
+            } catch (error) {
+                console.error('Error saving consultation:', error);
+                errorDisplay.textContent = `Error saving: ${error.message}`;
+                statusMessage.textContent = 'Failed to save.';
+                confirmButton.disabled = false;
+            }
+        });
+
+        // --- Download PDF Logic (Unchanged) ---
+        downloadButton.addEventListener('click', () => {
+            if (currentConsultationId) {
+                window.location.href = `/download_pdf/${currentConsultationId}`;
+            } else {
+                errorDisplay.textContent = 'Cannot download PDF. No consultation has been saved yet.';
+            }
+        });
+
+        // --- Live Transcript Demo Logic ---
+        startLiveButton.addEventListener('click', async () => {
+             if (mediaRecorderMain && mediaRecorderMain.state === 'recording') {
+                 liveErrorDisplay.textContent = 'Stop main recording before starting Live Demo.';
+                 return;
+            }
+            updateActiveMicDisplay();
+            // Request specific sample rate if possible
+            const constraints = {
+                audio: {
+                    ...(getSelectedAudioConstraints().audio),
+                    sampleRate: 16000, // Explicitly request 16kHz for STT
+                    channelCount: 1 // Ensure mono
+                }
+            };
+
+            try {
+                liveStream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log("Live Mic Stream obtained.");
+
+                // --- Setup Web Audio API for Processing & Visualization ---
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                } else if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                }
+                console.log(`AudioContext sample rate: ${audioCtx.sampleRate}`);
+                if (audioCtx.sampleRate !== 16000) {
+                    console.warn("Warning: AudioContext did not get 16000 Hz. Resampling NOT implemented for this demo. STT might fail.");
+                    // NOTE: Client-side resampling adds complexity, omitted for PoC scope
+                }
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+                bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                source = audioCtx.createMediaStreamSource(liveStream);
+
+                scriptNode = audioCtx.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1); // Buffer size, input channels, output channels
+
+                scriptNode.onaudioprocess = (audioProcessingEvent) => {
+                    const inputBuffer = audioProcessingEvent.inputBuffer;
+                    const channelData = inputBuffer.getChannelData(0); // Get float data for channel 0
+                    const pcm16Buffer = convertFloat32ToInt16(channelData); // Convert to Int16 ArrayBuffer
+
+                    // Send the Int16 PCM data over WebSocket
+                    if (liveWebSocket && liveWebSocket.readyState === WebSocket.OPEN) {
+                        // console.log(`Sending PCM audio chunk: ${pcm16Buffer.byteLength} bytes`); // Verbose Log
+                        liveWebSocket.send(pcm16Buffer);
+                    }
+                };
+
+                source.connect(analyser);
+                source.connect(scriptNode);
+                // DO NOT connect scriptNode to destination - we don't want local playback
+                // scriptNode.connect(audioCtx.destination);
+                // --- End Web Audio Setup ---
+
+                // Setup WebSocket connection
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                const wsUrl = `${wsProtocol}${window.location.host}/live_transcript`;
+                liveWebSocket = new WebSocket(wsUrl);
+                liveWebSocket.binaryType = 'arraybuffer'; // Crucial for sending PCM data
+
+                liveWebSocket.onopen = () => {
+                    console.log('Live WebSocket connected, binaryType set to arraybuffer.');
+                    liveStatus.textContent = `Live demo started (mic: ${audioSourceSelect.options[audioSourceSelect.selectedIndex]?.text || 'Default'}). Speak...`;
+                    liveStatus.style.display = 'block';
+                    liveErrorDisplay.textContent = '';
+                    startLiveButton.disabled = true;
+                    stopLiveButton.disabled = false;
+                    liveTranscriptArea.textContent = '(Listening...)';
+                    // Start visualization (processing starts automatically via onaudioprocess)
+                    visualize();
+                };
+
+                liveWebSocket.onmessage = (event) => {
+                    console.log("Raw WS Message Received:", event.data);
+                    const message = event.data;
+                    const liveArea = document.getElementById('liveTranscriptArea');
+                    const liveErrDisp = document.getElementById('liveErrorDisplay');
+                    if (!liveArea || !liveErrDisp) return;
+
+                    if (message.startsWith('FINAL:')) {
+                        const finalTranscript = message.substring(6);
+                        liveArea.textContent += `\n${finalTranscript} [FINAL]\n`;
+                        liveArea.scrollTop = liveArea.scrollHeight;
+                        liveErrDisp.textContent = '';
+                    } else if (message.startsWith('INTERIM:')) {
+                        const interimTranscript = message.substring(8);
+                        const currentText = liveArea.textContent;
+                        const lines = currentText.split('\n');
+                        if (lines.length > 0 && !lines[lines.length - 1].includes('[FINAL]')) {
+                            lines[lines.length - 1] = interimTranscript;
+                        } else {
+                            lines.push(interimTranscript);
+                        }
+                        liveArea.textContent = lines.join('\n');
+                        liveErrDisp.textContent = '';
+                    } else if (message.startsWith('ERROR:')) {
+                        liveErrDisp.textContent = `Live Error: ${message.substring(6)}`;
+                    } else if (message.startsWith('STATUS:')) {
+                        liveErrDisp.textContent = `Status: ${message.substring(7)}`;
+                    }
+                };
+
+                liveWebSocket.onerror = (error) => {
+                    console.error('WebSocket Error:', error);
+                    liveErrorDisplay.textContent = 'WebSocket connection error. Check server logs.';
+                    stopLiveDemo();
+                };
+
+                liveWebSocket.onclose = (event) => {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    liveStatus.textContent = `Live demo connection closed (${event.code}).`;
+                    stopLiveDemo(); // Ensure cleanup runs
+                };
+
+            } catch (err) {
+                console.error('Error starting live demo:', err);
+                liveErrorDisplay.textContent = `Live Demo Mic/Audio Error: ${err.message}`;
+                liveStatus.style.display = 'none';
+            }
+        });
+
+        stopLiveButton.addEventListener('click', stopLiveDemo);
+
+        function stopLiveDemo() {
+            console.log("Stopping live demo...");
+            // Stop ScriptProcessorNode - disconnect it first
+            if (scriptNode) {
+                 try {
+                     scriptNode.disconnect();
+                     scriptNode = null;
+                     console.log("ScriptProcessorNode disconnected.");
+                 } catch(e) { console.error("Error disconnecting ScriptProcessorNode:", e); }
+            }
+            // Close WebSocket
+            if (liveWebSocket && (liveWebSocket.readyState === WebSocket.OPEN || liveWebSocket.readyState === WebSocket.CONNECTING)) {
+                liveWebSocket.close(1000, "Client stopping demo");
+            }
+             // Clean up the live stream tracks to release the microphone indicator
+            if (liveStream) {
+                liveStream.getTracks().forEach(track => track.stop());
+                liveStream = null;
+                console.log("Live media stream stopped.");
+            }
+            // Stop visualization
+            if (drawVisual) {
+                cancelAnimationFrame(drawVisual);
+                drawVisual = null;
+                canvasCtx.fillStyle = '#333';
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+                console.log("Visualization stopped.");
+            }
+            // Disconnect Web Audio nodes
+            if (source) {
+                 try {
+                     source.disconnect();
+                     source = null;
+                     console.log("Audio source node disconnected.");
+                 } catch(e) { console.error("Error disconnecting source node:", e); }
+            }
+            if (analyser) {
+                 try {
+                    analyser.disconnect();
+                    analyser = null;
+                    console.log("Analyser node disconnected.");
+                } catch(e) { console.error("Error disconnecting analyser node:", e); }
+            }
+             // Close AudioContext if desired, or leave open for reuse
+             if (audioCtx && audioCtx.state !== 'closed') {
+                 // audioCtx.close(); // Optional: close context fully
+                 // audioCtx = null;
+             }
+
+            liveStatus.textContent = 'Live demo stopped.';
+            startLiveButton.disabled = false;
+            stopLiveButton.disabled = true;
+            activeMicDisplay.textContent = '';
+        }
+
+        // Helper function to convert Float32Array to Int16 ArrayBuffer (Little Endian)
+        function convertFloat32ToInt16(buffer) {
+            let l = buffer.length;
+            let buf = new Int16Array(l);
+            while (l--) {
+                buf[l] = Math.min(1, buffer[l]) * 0x7FFF; // Clamp to [-1, 1] then scale to [-32767, 32767]
+            }
+            return buf.buffer; // Return the underlying ArrayBuffer
+        }
+
+        // --- Visualization Function ---
+        function visualize() {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+            canvasCtx.fillStyle = '#333';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / bufferLength) * 1.5;
+            let barHeight;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = dataArray[i] / 2;
+                canvasCtx.fillStyle = `rgb(50, ${barHeight + 100}, 50)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+            drawVisual = requestAnimationFrame(visualize);
+        }
+
+    </script>
+</body>
+</html> 

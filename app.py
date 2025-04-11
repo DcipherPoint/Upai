@@ -4,9 +4,10 @@ import datetime
 import time # Ensure time is imported
 import re # Import regex for parsing
 import json # Import json for handling prescription data
+import logging
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for
+from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for, flash, session # Added session
 from flask_sock import Sock # Added for WebSockets
 # Import WebSocket exceptions
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
@@ -18,6 +19,7 @@ import google.generativeai as genai # Updated import for Gemini API
 import google.api_core.exceptions
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos # Import XPos and YPos for modern API
+import requests # Add requests import
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,8 +37,14 @@ db_name = os.getenv('DB_NAME')
 # Audio parameters for streaming
 STREAMING_RATE = 48000 # Keep 48kHz based on browser reality
 
+# Load OpenFDA API Key
+OPENFDA_API_KEY = os.getenv("OPENFDA_API_KEY")
+if not OPENFDA_API_KEY:
+    logging.warning("OPENFDA_API_KEY not found in .env file. ADR validation will be skipped.")
+
 # --- Initialize Flask App & Sock ---
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'a_default_secret_key_for_development') # Needed for flash messages
 sock = Sock(app) # Initialize Flask-Sock
 
 # --- Initialize Google Cloud Clients ---
@@ -119,10 +127,25 @@ def execute_query(query, params=()):
 # --- Flask Routes ---
 @app.route('/')
 def index():
-    """Renders the patient selection page."""
-    # Fetch patients to display on the index page
+    """Renders the main dashboard page."""
+    # Fetch all patients for the search list
     patients = fetch_all("SELECT id, name FROM Patient ORDER BY name")
-    return render_template('index.html', patients=patients)
+    
+    # Fetch count of consultations for today
+    # Assuming doctor_id 1 for now
+    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    today_date = datetime.date.today()
+    query_today = """SELECT COUNT(*) as count 
+                   FROM Consultation 
+                   WHERE doctor_id = %s AND DATE(consultation_date) = %s"""
+    today_data = fetch_one(query_today, (doctor_id, today_date))
+    todays_consultations_count = today_data['count'] if today_data else 0
+    
+    return render_template(
+        'index.html', 
+        patients=patients, 
+        todays_count=todays_consultations_count
+    )
 
 @app.route('/consultation/<int:patient_id>')
 def consultation_page(patient_id):
@@ -300,20 +323,34 @@ Follow-Up Date:
 def save_consultation():
     """Saves the confirmed structured consultation data to the database."""
     data = request.json
-    required_fields = ["patient_id", "doctor_id", "raw_transcript", "ai_summary",
-                       "chief_complaints", "clinical_findings", "internal_notes",
-                       "diagnosis", "procedures_conducted", "prescription_details",
-                       "investigations", "advice_given"] # follow_up_date is optional
-                       
-    if not data or not all(field in data for field in required_fields):
-        missing = [field for field in required_fields if field not in data] if data else required_fields
+    # Get doctor_id from session <-- Temporarily disable session check for MVP
+    # doctor_id = session.get('user_id')
+
+    # Validate session <-- Temporarily disable session check for MVP
+    # if not doctor_id:
+    #     return jsonify({"error": "User not logged in or session expired"}), 401 # Unauthorized
+
+    doctor_id = 1 # <<< TEMPORARY HARDCODED DOCTOR ID FOR MVP
+
+    # Define required fields from the incoming JSON data
+    # doctor_id is now handled via session
+    required_fields_from_data = ["patient_id", "raw_transcript", # Expecting raw_transcript
+                                 "chief_complaints", "clinical_findings", "internal_notes",
+                                 "diagnosis", "procedures_conducted", "prescription_details",
+                                 "investigations", "advice_given"]
+                                 # follow_up_date is optional
+                                 # ai_summary is optional or can be derived/ignored
+
+    # Validate incoming data
+    if not data or not all(field in data for field in required_fields_from_data):
+        missing = [field for field in required_fields_from_data if not data or field not in data]
         return jsonify({"error": f"Missing required data fields: {', '.join(missing)}"}), 400
 
     # Extract data (handle optional follow_up_date)
     patient_id = data.get("patient_id")
-    doctor_id = data.get("doctor_id")
+    # doctor_id = data.get("doctor_id") # Removed - get from session
     raw_transcript = data.get("raw_transcript", "")
-    ai_summary = data.get("ai_summary", "")
+    # ai_summary = data.get("ai_summary", "") # ai_summary is no longer explicitly sent or required here
     chief_complaints = data.get("chief_complaints", "")
     clinical_findings = data.get("clinical_findings", "")
     internal_notes = data.get("internal_notes", "")
@@ -339,14 +376,20 @@ def save_consultation():
 
     consultation_date = datetime.datetime.now()
 
-    # Updated SQL Query
+    # --- Derive ai_summary (Optional: Can generate a simple summary or use first part of raw transcript) ---
+    # Option 1: Use first N chars of raw_transcript as summary
+    ai_summary = (raw_transcript[:500] + '...') if len(raw_transcript) > 500 else raw_transcript
+    # Option 2: Leave ai_summary blank or NULL in DB (adjust query/params if needed)
+    # ai_summary = "" # Or handle NULL in DB
+
+    # Updated SQL Query (ensure ai_summary placeholder exists if using Option 1)
     query = ("""INSERT INTO Consultation (
                 patient_id, doctor_id, consultation_date, raw_transcript, ai_summary,
                 chief_complaints, clinical_findings, internal_notes, diagnosis,
                 procedures_conducted, prescription_details, investigations, advice_given,
                 follow_up_date
              ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
-    params = (patient_id, doctor_id, consultation_date, raw_transcript, ai_summary,
+    params = (patient_id, doctor_id, consultation_date, raw_transcript, ai_summary, # Use derived ai_summary
               chief_complaints, clinical_findings, internal_notes, diagnosis,
               procedures_conducted, prescription_details_json, investigations, advice_given,
               follow_up_date) # Pass None if date was invalid/empty
@@ -358,12 +401,76 @@ def save_consultation():
     else:
         return jsonify({"error": "Failed to save consultation to database"}), 500
 
-# UPDATED Route: PDF Download (Layout Refinements)
+# --- Settings Routes ---
+@app.route('/settings')
+def settings_page():
+    """Displays the settings page for the logged-in doctor."""
+    # Assume doctor ID 1 for now
+    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    
+    doctor_details = fetch_one("SELECT * FROM User WHERE id = %s", (doctor_id,))
+    
+    if not doctor_details:
+        flash("Doctor details not found.", "error")
+        return redirect(url_for('index')) # Redirect if doctor doesn't exist
+        
+    return render_template('settings.html', doctor=doctor_details)
+
+@app.route('/update_settings', methods=['POST'])
+def update_settings():
+    """Updates the settings for the logged-in doctor."""
+    # Assume doctor ID 1 for now
+    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+
+    try:
+        # Get data from form
+        name = request.form.get('name')
+        email = request.form.get('email')
+        phone = request.form.get('phone_number')
+        reg_no = request.form.get('registration_number')
+        qual = request.form.get('qualifications')
+        clinic_name = request.form.get('clinic_name')
+        clinic_addr = request.form.get('clinic_address')
+        clinic_time = request.form.get('clinic_timings')
+        clinic_closed = request.form.get('clinic_closed_days')
+
+        # Basic validation (add more as needed)
+        if not name or not email:
+            flash("Doctor Name and Email are required.", "error")
+            return redirect(url_for('settings_page'))
+
+        query = """UPDATE User SET 
+                    name = %s, email = %s, phone_number = %s, registration_number = %s, 
+                    qualifications = %s, clinic_name = %s, clinic_address = %s, 
+                    clinic_timings = %s, clinic_closed_days = %s 
+                 WHERE id = %s"""
+        params = (name, email, phone, reg_no, qual, clinic_name, clinic_addr, 
+                  clinic_time, clinic_closed, doctor_id)
+        
+        execute_query(query, params)
+        flash("Settings updated successfully!", "success")
+
+    except Exception as e:
+        print(f"Error updating settings: {e}")
+        flash(f"Error updating settings: {e}", "error")
+
+    return redirect(url_for('settings_page'))
+
+# UPDATED Route: PDF Download (Using Dynamic Doctor/Clinic Data)
 @app.route('/download_pdf/<int:consultation_id>')
 def download_pdf(consultation_id):
     """Generates and sends a PDF for the given consultation using structured data."""
-    # Fetch structured consultation details
-    query = """SELECT c.*, p.name AS patient_name, p.dob AS patient_dob, p.gender AS patient_gender, p.address AS patient_address, d.name AS doctor_name FROM Consultation c JOIN Patient p ON c.patient_id = p.id JOIN User d ON c.doctor_id = d.id WHERE c.id = %s"""
+    # Fetch consultation AND the specific doctor's details for this consultation
+    query = """SELECT c.*, 
+                  p.name AS patient_name, p.dob AS patient_dob, 
+                  p.gender AS patient_gender, p.address AS patient_address, 
+                  d.name AS doctor_name, d.phone_number AS doctor_phone, 
+                  d.registration_number AS doctor_reg_no, d.qualifications AS doctor_qual, 
+                  d.clinic_name, d.clinic_address, d.clinic_timings, d.clinic_closed_days 
+           FROM Consultation c 
+           JOIN Patient p ON c.patient_id = p.id 
+           JOIN User d ON c.doctor_id = d.id 
+           WHERE c.id = %s"""
     consultation_data = fetch_one(query, (consultation_id,))
 
     if not consultation_data:
@@ -374,30 +481,33 @@ def download_pdf(consultation_id):
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_font("Helvetica", size=10)
-        page_width = pdf.w - 2 * pdf.l_margin # Usable page width
+        page_width = pdf.w - 2 * pdf.l_margin
 
-        # --- Header ---
+        # --- Header (Using Dynamic Data) ---
         header_y_start = pdf.get_y()
         pdf.set_font("Helvetica", 'B', 11)
-        # FIX: Don't add "Dr." prefix, assume it's in the database name if needed
         pdf.cell(page_width * 0.6, 5, f"{consultation_data.get('doctor_name', 'N/A')}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", size=9)
-        pdf.cell(page_width * 0.6, 4, "M.B.B.S., M.D., M.S. | Reg. No: XXXXXX", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
-        pdf.cell(page_width * 0.6, 4, "Mob. No: XXXXXXXX", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        qual_reg = f"{consultation_data.get('doctor_qual', 'N/A')} | Reg. No: {consultation_data.get('doctor_reg_no', 'N/A')}"
+        pdf.cell(page_width * 0.6, 4, qual_reg, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(page_width * 0.6, 4, f"Mob. No: {consultation_data.get('doctor_phone', 'N/A')}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         header_y_end_left = pdf.get_y()
 
-        # Clinic Details (Aligned Right)
-        pdf.set_y(header_y_start) # Reset Y to align top
-        pdf.set_x(pdf.l_margin + page_width * 0.6) # Move to the right column position
+        # Clinic Details (Dynamic)
+        pdf.set_y(header_y_start)
+        pdf.set_x(pdf.l_margin + page_width * 0.6)
         pdf.set_font("Helvetica", 'B', 11)
-        pdf.multi_cell(page_width * 0.4, 5, "Care Clinic", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(page_width * 0.4, 5, f"{consultation_data.get('clinic_name', 'Clinic Name N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_x(pdf.l_margin + page_width * 0.6)
         pdf.set_font("Helvetica", size=9)
-        pdf.multi_cell(page_width * 0.4, 4, "Kothrud, Pune - 411038.", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(page_width * 0.4, 4, f"{consultation_data.get('clinic_address', 'Address N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_x(pdf.l_margin + page_width * 0.6)
-        pdf.multi_cell(page_width * 0.4, 4, "Ph: 094233 80390", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(page_width * 0.4, 4, f"Ph: {consultation_data.get('doctor_phone', 'N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Assuming clinic phone is doctor's phone for now
         pdf.set_x(pdf.l_margin + page_width * 0.6)
-        pdf.multi_cell(page_width * 0.4, 4, "Timing: 09:00 AM - 02:00 PM | Closed: Thursday", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        timing_str = f"Timing: {consultation_data.get('clinic_timings', 'N/A')}"
+        if closed_days := consultation_data.get('clinic_closed_days'):
+            timing_str += f" | Closed: {closed_days}"
+        pdf.multi_cell(page_width * 0.4, 4, timing_str, border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         header_y_end_right = pdf.get_y()
 
         # Move below the taller header block
@@ -499,25 +609,29 @@ def download_pdf(consultation_id):
         current_y += max_h_row3 + 4 # Extra gap before prescription
         pdf.set_y(current_y)
 
-        # --- Prescription Table (Unchanged from previous refinement) ---
+        # --- Prescription Table (Updated for all fields) ---
         pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(0, 8, "R", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 8, "Prescription", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_fill_color(230, 230, 230)
         pdf.set_font("Helvetica", 'B', 9)
         
-        # Define column widths
+        # Define column widths (Adjusted for new columns)
         col_sr = 10
-        col_med = 70
-        col_dose = 50
-        col_dur = page_width - col_sr - col_med - col_dose 
+        col_med = 50 # Reduced
+        col_dose = 30 # Reduced
+        col_freq = 30 # Added
+        col_dur = 30 # Reduced
+        col_inst = page_width - col_sr - col_med - col_dose - col_freq - col_dur # Added Instructions
         row_height = 6 # Base row height
 
-        # Table Header
+        # Table Header (Updated)
         start_x = pdf.get_x()
         pdf.cell(col_sr, row_height, "Sr.", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
         pdf.cell(col_med, row_height, "Medicine Name", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
         pdf.cell(col_dose, row_height, "Dosage", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(col_dur, row_height, "Duration", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(col_freq, row_height, "Frequency", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP) # Added Frequency Header
+        pdf.cell(col_dur, row_height, "Duration", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.cell(col_inst, row_height, "Instructions", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Added Instructions Header
 
         pdf.set_font("Helvetica", '', 9)
         pdf.set_fill_color(255, 255, 255) # Reset fill
@@ -530,29 +644,41 @@ def download_pdf(consultation_id):
                 
                 # Calculate height needed for each cell in this row
                 pdf.set_xy(start_x + col_sr, start_y) # Position for Medicine cell
-                pdf.multi_cell(col_med, line_height, item.get('medicine', ''), border=0, align='L')
+                pdf.multi_cell(col_med, line_height, item.get('medicine_name', ''), border=0, align='L')
                 h_med = pdf.get_y() - start_y
 
                 pdf.set_xy(start_x + col_sr + col_med, start_y) # Position for Dosage cell
                 pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border=0, align='L')
                 h_dose = pdf.get_y() - start_y
 
-                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y) # Position for Duration cell
+                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y) # Position for Frequency cell
+                pdf.multi_cell(col_freq, line_height, item.get('frequency', ''), border=0, align='L')
+                h_freq = pdf.get_y() - start_y
+
+                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq, start_y) # Position for Duration cell
                 pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border=0, align='L')
                 h_dur = pdf.get_y() - start_y
 
+                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq + col_dur, start_y) # Position for Instructions cell
+                pdf.multi_cell(col_inst, line_height, item.get('instructions', ''), border=0, align='L')
+                h_inst = pdf.get_y() - start_y
+
                 # Determine max height for the row
-                max_h = max(h_med, h_dose, h_dur, row_height) # Ensure minimum height
+                max_h = max(h_med, h_dose, h_freq, h_dur, h_inst, row_height) # Added h_freq, h_inst
 
                 # Draw the cells with borders and calculated height
                 pdf.set_xy(start_x, start_y)
                 pdf.cell(col_sr, max_h, str(i), border=1, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
                 pdf.set_xy(start_x + col_sr, start_y) # Need xy for multi_cell positioning
-                pdf.multi_cell(col_med, line_height, item.get('medicine', ''), border='LR', align='L') # LR borders only for multi_cell
+                pdf.multi_cell(col_med, line_height, item.get('medicine_name', ''), border='LR', align='L')
                 pdf.set_xy(start_x + col_sr + col_med, start_y)
                 pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border='LR', align='L')
                 pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y)
+                pdf.multi_cell(col_freq, line_height, item.get('frequency', ''), border='LR', align='L') # Added Frequency Cell Draw
+                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq, start_y)
                 pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border='LR', align='L')
+                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq + col_dur, start_y)
+                pdf.multi_cell(col_inst, line_height, item.get('instructions', ''), border='LR', align='L') # Added Instructions Cell Draw
                 
                 # Draw bottom border for the row
                 pdf.set_y(start_y + max_h) # Move Y below the row
@@ -582,7 +708,7 @@ def download_pdf(consultation_id):
         pdf.set_font("Helvetica", 'B', 10)
         pdf.cell(page_width, 5, consultation_data.get('doctor_name', 'N/A'), border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_font("Helvetica", '', 9)
-        pdf.cell(page_width, 4, "M.B.B.S., M.D., M.S.", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Placeholder
+        pdf.cell(page_width, 4, consultation_data.get('doctor_qual', 'N/A'), border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Use dynamic qualifications
 
         # --- Save PDF to Buffer ---
         pdf_buffer = io.BytesIO()
@@ -731,6 +857,130 @@ def process_stt_responses(ws, responses, start_time, timeout_duration, chunk_rec
                 print(f"Failed to send processing error to client: {send_err}")
     finally:
         print(f"Process STT responses loop finished. (Transcripts sent: {transcript_sent})")
+
+# --- New EOD Summary Route ---
+@app.route('/get_eod_data')
+def get_eod_data():
+    """Fetches details of consultations created today and doctor info."""
+    # Assuming doctor ID 1 for now
+    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    today_date = datetime.date.today()
+    
+    # Fetch Doctor's Name
+    doctor_info = fetch_one("SELECT name FROM User WHERE id = %s", (doctor_id,))
+    doctor_name = doctor_info['name'] if doctor_info else "Unknown Doctor"
+    
+    # Fetch Consultations
+    query = """SELECT p.name AS patient_name, c.diagnosis 
+               FROM Consultation c 
+               JOIN Patient p ON c.patient_id = p.id 
+               WHERE c.doctor_id = %s AND DATE(c.consultation_date) = %s 
+               ORDER BY c.consultation_date"""
+    
+    todays_consultations = fetch_all(query, (doctor_id, today_date))
+    
+    return jsonify({
+        "doctor_name": doctor_name,
+        "consultations": todays_consultations
+        })
+
+# --- New Route for Live ADR Check ---
+@app.route('/check_adr', methods=['POST'])
+def check_adr():
+    if not OPENFDA_API_KEY:
+        return jsonify({"error": "OpenFDA API Key not configured"}), 500
+
+    data = request.get_json()
+    transcript = data.get('transcript', '')
+
+    if not transcript or len(transcript.split()) < 10: # Avoid checking very short transcripts
+        return jsonify({"validated_adrs": []})
+
+    logging.info(f"Checking ADR for transcript segment: {transcript[:100]}...")
+
+    validated_adrs = []
+    try:
+        # 1. Call Gemini to identify potential ADRs
+        # Refined prompt for structured output
+        prompt = f"""
+        Analyze the following medical consultation transcript. Identify potential Adverse Drug Reactions (ADRs) mentioned.
+        For each potential ADR, extract the specific drug name mentioned and the specific symptom(s) described by the patient potentially linked to that drug.
+        Format the output STRICTLY as a JSON list of objects, where each object has a "drug" key and a "symptom" key.
+        Example: [{"drug": "Metformin", "symptom": "dizziness"}, {"drug": "Lisinopril", "symptom": "cough"}]
+        If no potential ADRs are mentioned, return an empty list [].
+
+        Transcript:
+        "{transcript}"
+
+        Potential ADRs (JSON list):
+        """
+        response = gemini_model.generate_content(prompt)
+        logging.debug(f"Gemini ADR check response: {response.text}")
+
+        # Attempt to parse the JSON response from Gemini
+        potential_adrs = []
+        try:
+            # Clean the response text if necessary (remove markdown, etc.)
+            cleaned_response = response.text.strip().replace('```json', '').replace('```', '').strip()
+            potential_adrs = json.loads(cleaned_response)
+            if not isinstance(potential_adrs, list): # Ensure it's a list
+                 potential_adrs = []
+        except json.JSONDecodeError:
+            logging.error(f"Failed to decode JSON from Gemini ADR response: {response.text}")
+            potential_adrs = [] # Proceed without potential ADRs if parsing fails
+
+        # 2. Validate potential ADRs with OpenFDA
+        if potential_adrs:
+            logging.info(f"Gemini identified potential ADRs: {potential_adrs}")
+            session_requests = requests.Session() # Use session for potential connection reuse
+            for adr in potential_adrs:
+                drug = adr.get('drug')
+                symptom = adr.get('symptom')
+
+                if drug and symptom:
+                    # Prepare search terms (handle spaces, basic sanitization)
+                    drug_term = drug.replace(' ', '+').strip()
+                    symptom_term = symptom.replace(' ', '+').strip()
+
+                    # Construct OpenFDA query (Search in brand name, generic name, and reaction)
+                    # Note: OpenFDA search syntax can be complex. This is a basic attempt.
+                    # Searching multiple fields: (field1:"term1")+AND+(field2:"term2")
+                    # Using .exact for potentially better matching on harmonized fields
+                    # query = f'(patient.drug.openfda.brand_name.exact:"{drug_term}"+OR+patient.drug.openfda.generic_name.exact:"{drug_term}"+OR+patient.drug.medicinalproduct.exact:"{drug_term}")+AND+(patient.reaction.reactionmeddrapt.exact:"{symptom_term}")'
+                    # Simpler query for robustness: search across relevant fields
+                    query = f'patient.drug.medicinalproduct:"{drug_term}"+AND+patient.reaction.reactionmeddrapt:"{symptom_term}"'
+
+                    # Limit to 1 result just to check existence, add API key
+                    url = f"https://api.fda.gov/drug/event.json?api_key={OPENFDA_API_KEY}&search={query}&limit=1"
+
+                    try:
+                        logging.debug(f"Querying OpenFDA: {url}")
+                        fda_response = session_requests.get(url, timeout=10) # Add timeout
+                        fda_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+                        fda_data = fda_response.json()
+                        logging.debug(f"OpenFDA response for {drug}/{symptom}: {fda_data}")
+
+                        # Check if any results were found
+                        if fda_data.get("meta", {}).get("results", {}).get("total", 0) > 0:
+                            logging.info(f"OpenFDA validation SUCCESS for {drug} -> {symptom}")
+                            validated_adrs.append({"drug": drug, "symptom": symptom})
+                        else:
+                             logging.info(f"OpenFDA validation FAILED for {drug} -> {symptom} (No matching reports found)")
+
+                    except requests.exceptions.RequestException as e:
+                        logging.error(f"OpenFDA API request failed for {drug}/{symptom}: {e}")
+                    except json.JSONDecodeError:
+                         logging.error(f"Failed to decode JSON from OpenFDA response for {drug}/{symptom}")
+
+
+    except Exception as e:
+        logging.error(f"Error during ADR check: {e}", exc_info=True)
+        # Return empty list on error, but log it
+        return jsonify({"validated_adrs": []})
+
+    logging.info(f"Returning validated ADRs: {validated_adrs}")
+    return jsonify({"validated_adrs": validated_adrs})
 
 # --- Run the App ---
 if __name__ == '__main__':

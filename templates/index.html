@@ -3,37 +3,424 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Care Assistant</title>
+    <title>Upai Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 600px; margin: auto; background-color: #f4f7f6; }
-        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1, h2 { color: #0056b3; text-align: center; }
-        ul { list-style: none; padding: 0; }
-        li { margin-bottom: 10px; background-color: #e9ecef; padding: 10px; border-radius: 4px; }
-        a { color: #007bff; text-decoration: none; font-weight: bold; }
-        a:hover { text-decoration: underline; }
-        p { text-align: center; color: #666; }
+        :root {
+            --primary-color: #0056b3;
+            --secondary-color: #6c757d;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --dark-gray: #dee2e6;
+            --text-color: #343a40;
+            --white: #ffffff;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --border-radius: 6px;
+            --box-shadow: 0 2px 5px rgba(0,0,0,0.07);
+            --header-height: 60px;
+        }
+
+        /* --- Global Styles --- */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            background-color: var(--light-gray);
+            color: var(--text-color);
+        }
+        .app-container { 
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh; 
+        }
+        .header {
+            background-color: var(--primary-color);
+            color: var(--white);
+            padding: 0 30px; /* Use padding for vertical alignment */
+            height: var(--header-height);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--box-shadow);
+            position: sticky; /* Keep header visible */
+            top: 0;
+            z-index: 1000;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.7em;
+            font-weight: 600;
+        }
+        .header a, .header a:visited {
+            color: var(--white);
+            text-decoration: none;
+            font-size: 0.95em;
+            padding: 8px 12px;
+            border-radius: var(--border-radius);
+            transition: background-color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header a:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+        .main-content { 
+            padding: 30px;
+            /* Remove max-width to allow stretching */
+            width: 100%; 
+            box-sizing: border-box;
+            margin: 0; /* Remove auto margin */
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column; /* Center content vertically if needed */
+        }
+        .content-wrapper { /* New wrapper for centered content */
+             width: 100%;
+             max-width: 1100px; /* Reintroduce max-width here if desired */
+             margin: 20px auto; /* Center the wrapper */
+        }
+        h2 {
+            color: var(--primary-color);
+            text-align: center;
+            margin-bottom: 35px;
+            font-weight: 600;
+            font-size: 1.8em;
+        }
+        /* --- Dashboard Layout & Sections --- */
+        .dashboard-columns {
+            display: flex;
+            gap: 30px;
+            width: 100%;
+        }
+        .dashboard-left, .dashboard-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 25px; /* Space between sections in a column */
+        }
+        .dashboard-section {
+             background-color: var(--white);
+             padding: 25px;
+             border-radius: var(--border-radius);
+             border: 1px solid var(--dark-gray);
+             box-shadow: var(--box-shadow);
+        }
+        .dashboard-section h3 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--dark-gray);
+            color: #495057;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        /* --- Index Specific Styles --- */
+        .search-container {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .search-container label {
+            font-size: 1.1em;
+            color: var(--secondary-color);
+        }
+        #patientSearchInput {
+            flex-grow: 1;
+            padding: 10px 12px;
+            border: 1px solid var(--dark-gray);
+            border-radius: var(--border-radius);
+            font-size: 1em;
+        }
+         #patientSearchInput:focus {
+             outline: none;
+             border-color: var(--primary-color);
+             box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25);
+         }
+        #patientList {
+            list-style: none;
+            padding: 0;
+            margin: 0; /* Remove default margin */
+            max-height: 45vh; /* Adjust height */
+            overflow-y: auto;
+            border: 1px solid var(--dark-gray);
+            border-radius: var(--border-radius);
+        }
+        #patientList li {
+            margin-bottom: 0; /* Remove bottom margin */
+            padding: 12px 15px;
+            display: flex; 
+            justify-content: space-between;
+            align-items: center;
+            transition: background-color 0.2s ease;
+            border-bottom: 1px solid var(--dark-gray); /* Separator line */
+        }
+         #patientList li:last-child {
+             border-bottom: none;
+         }
+        #patientList li:hover {
+             background-color: var(--medium-gray);
+        }
+        #patientList a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 1.05em;
+            display: block;
+        }
+        #patientList a:hover {
+            text-decoration: underline;
+        }
+        #noPatientsMessage, #noResultsMessage {
+            text-align: center;
+            color: var(--secondary-color);
+            padding: 25px;
+            display: none; /* Hidden initially */
+            font-style: italic;
+        }
+         /* --- EOD Summary Styles --- */
+        #eodSummaryDisplay {
+            margin-top: 15px;
+            background-color: var(--white); /* White background for report area */
+            padding: 20px;
+            border-radius: var(--border-radius);
+            font-family: inherit; /* Use body font */
+            font-size: 1em;
+            /* white-space: pre-wrap; */ /* Remove pre formatting */
+            min-height: 150px; /* Increased min height */
+            max-height: 50vh; /* Increased max height */
+            overflow-y: auto;
+            border: 1px solid var(--dark-gray);
+            display: none; /* Hidden initially */
+            color: var(--text-color);
+            line-height: 1.7; /* Slightly more line spacing */
+        }
+        #eodSummaryDisplay h4 {
+            font-size: 1.2em;
+            color: var(--primary-color);
+            margin-top: 0;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--dark-gray);
+            display: inline-block; /* Keep border contained */
+        }
+        #eodSummaryDisplay h5 {
+             font-size: 1.05em;
+             color: var(--danger-color);
+             margin-top: 15px;
+             margin-bottom: 8px;
+             font-weight: 600;
+             display: flex;
+             align-items: center;
+             gap: 6px;
+        }
+        #eodSummaryDisplay p {
+             margin-bottom: 8px;
+             color: #495057;
+        }
+        #eodSummaryDisplay p strong {
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        #eodSummaryDisplay ul {
+            list-style: none;
+            padding-left: 5px; /* Slight indent */
+            margin-top: 10px;
+        }
+        #eodSummaryDisplay li {
+            margin-bottom: 12px;
+            padding-left: 15px;
+            border-left: 3px solid var(--medium-gray);
+        }
+        #generateEodButton {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background-color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 15px; /* Space between button and report */
+        }
+        #generateEodButton:hover {
+            background-color: #5a6268;
+        }
+        .today-overview p {
+             font-size: 1.1em;
+             color: var(--text-color);
+             margin-bottom: 5px;
+        }
+         .today-overview strong {
+             color: var(--primary-color);
+             font-size: 1.4em; /* Larger count */
+             font-weight: 600;
+         }
+         i { /* Ensure icons align nicely */
+            vertical-align: middle;
+         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Smart Care Assistant</h1>
-        <h2>Doctor Consultation Portal</h2>
+    <div class="app-container">
+        <header class="header">
+            <h1><i class="bi bi-heart-pulse-fill"></i> Upai Assistant</h1>
+            <a href="{{ url_for('settings_page') }}"><i class="bi bi-gear-fill"></i> Settings</a>
+        </header>
 
-        {% if patients %}
-            <h3>Select Patient to Start Consultation:</h3>
-            <ul>
-                {% for patient in patients %}
-                <li>
-                    <a href="{{ url_for('consultation_page', patient_id=patient.id) }}">{{ patient.name }} (ID: {{ patient.id }})</a>
-                </li>
-                {% endfor %}
-            </ul>
-        {% else %}
-            <p>No patients found in the database. Please add patients or check the database connection.</p>
-            <p><a href="{{ url_for('consultation_page', patient_id=1) }}">Try Demo Consultation (Patient ID 1)</a></p>
-        {% endif %}
+        <main class="main-content">
+            <div class="content-wrapper">
+                <h2>Dashboard</h2>
 
+                <div class="dashboard-columns">
+                    <!-- Left Column: Patient Finder -->
+                    <div class="dashboard-left">
+                        <div class="dashboard-section">
+                            <h3><i class="bi bi-person-lines-fill"></i> Patient Finder</h3>
+                            <div class="search-container">
+                                <label for="patientSearchInput"><i class="bi bi-search"></i></label>
+                                <input type="text" id="patientSearchInput" placeholder="Search by Name or ID...">
+                            </div>
+                            {% if patients %}
+                                <ul id="patientList">
+                                    {% for patient in patients %}
+                                    <li data-patient-name="{{ patient.name.lower() }}" data-patient-id="{{ patient.id }}">
+                                        <a href="{{ url_for('consultation_page', patient_id=patient.id) }}">{{ patient.name }} <span style="color: var(--secondary-color); font-size: 0.9em;">(ID: {{ patient.id }})</span></a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                                <p id="noResultsMessage">No patients match your search.</p>
+                            {% else %}
+                                <p id="noPatientsMessage" style="display: block;">No patients found.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Today's Activity & EOD -->
+                    <div class="dashboard-right">
+                        <div class="dashboard-section today-overview">
+                            <h3><i class="bi bi-calendar-check"></i> Activity Today</h3>
+                            <p>Consultations Recorded: <strong>{{ todays_count }}</strong></p>
+                        </div>
+
+                        <div class="dashboard-section">
+                            <h3><i class="bi bi-journal-text"></i> End-of-Day Summary</h3>
+                            <button id="generateEodButton"><i class="bi bi-arrow-clockwise"></i> Generate</button>
+                            <div id="eodSummaryDisplay">(Summary will appear here)</div>
+                        </div>
+                    </div>
+                </div>
+             </div> <!-- End Content Wrapper -->
+        </main>
     </div>
+
+    <script>
+        // --- Patient Search JS (Unchanged) ---
+        const searchInput = document.getElementById('patientSearchInput');
+        const patientList = document.getElementById('patientList');
+        const listItems = patientList ? patientList.querySelectorAll('li') : [];
+        const noResultsMessage = document.getElementById('noResultsMessage');
+
+        if (searchInput && listItems.length > 0) {
+            searchInput.addEventListener('keyup', function() {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                let visibleCount = 0;
+
+                listItems.forEach(item => {
+                    const name = item.dataset.patientName || '';
+                    const id = item.dataset.patientId || '';
+                    const linkText = item.textContent.toLowerCase(); // Fallback search text
+
+                    // Check if name or ID contains the search term
+                    const isMatch = name.includes(searchTerm) || id.includes(searchTerm) || linkText.includes(searchTerm);
+
+                    if (isMatch) {
+                        item.style.display = 'flex'; // Use flex as set in CSS
+                        visibleCount++;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+
+                // Show/hide the "no results" message
+                if (noResultsMessage) {
+                    noResultsMessage.style.display = visibleCount === 0 ? 'block' : 'none';
+                }
+            });
+        }
+
+        // --- EOD Summary JS (Updated) ---
+        const generateBtn = document.getElementById('generateEodButton');
+        const summaryDisplay = document.getElementById('eodSummaryDisplay');
+
+        if (generateBtn && summaryDisplay) {
+            generateBtn.addEventListener('click', async () => {
+                summaryDisplay.innerHTML = '<p>Generating...</p>'; // Use innerHTML
+                summaryDisplay.style.display = 'block';
+                generateBtn.disabled = true;
+
+                try {
+                    const response = await fetch("{{ url_for('get_eod_data') }}");
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    const data = await response.json(); // Expects { doctor_name: "...", consultations: [...] }
+
+                    // Build HTML String
+                    let summaryHTML = `<h4>End-of-Day Summary Report</h4>`;
+                    summaryHTML += `<p>
+                        <strong><i class="bi bi-calendar3"></i> Date:</strong> ${new Date().toLocaleDateString()}<br>
+                        <strong><i class="bi bi-person-badge"></i> Doctor:</strong> ${data.doctor_name || 'N/A'}<br>
+                        <strong><i class="bi bi-clipboard2-pulse"></i> Patients Seen:</strong> ${data.consultations ? data.consultations.length : 0}
+                    </p>`;
+                    
+                    // Placeholder Alerts Section
+                    summaryHTML += `<hr style="border-top: 1px dashed var(--dark-gray); margin: 15px 0;">`; // Visual separator
+                    summaryHTML += `<h5><i class="bi bi-exclamation-triangle-fill"></i> Top Alerts (Example)</h5>`;
+                    summaryHTML += `<p><strong>⚠️ Potential ADRs:</strong> 3 patients flagged.</p>`
+                    summaryHTML += `<ul style="font-size: 0.9em;">
+                        <li>Ravi Kumar | Med: Metformin | Symptom: Dizziness, Nausea</li>
+                        <li>Anita Desai | Med: Enalapril | Symptom: Persistent cough</li>
+                        <li>Manoj Sinha | Med: Ibuprofen | Symptom: Stomach pain</li>
+                    </ul>`;
+                    summaryHTML += `<p><strong>🛑 Abnormal Vitals:</strong> 2 patients.</p>`
+                    summaryHTML += `<ul style="font-size: 0.9em;">
+                        <li>Sunita Sharma: BP 160/105 (Hypertension Stage 2)</li>
+                        <li>Amit Roy: Temp 101.4°F (Fever)</li>
+                    </ul>`;
+
+                    if (data.consultations && data.consultations.length > 0) {
+                        summaryHTML += `<hr style="border-top: 1px dashed var(--dark-gray); margin: 15px 0;">`;
+                        summaryHTML += `<h5><i class="bi bi-card-list"></i> Consultation Details</h5>`;
+                        summaryHTML += `<ul>`;
+                        data.consultations.forEach((consult, index) => {
+                            summaryHTML += `<li>
+                                <strong>Patient:</strong> ${consult.patient_name || 'N/A'}<br>
+                                <strong>Diagnosis:</strong> ${consult.diagnosis || 'N/A'}
+                            </li>`;
+                        });
+                        summaryHTML += `</ul>`;
+                    } else {
+                        summaryHTML += `<p style="margin-top: 15px; font-style: italic;">No consultation details recorded today.</p>`;
+                    }
+
+                    summaryDisplay.innerHTML = summaryHTML; // Set the generated HTML
+
+                } catch (error) {
+                    console.error("Error fetching EOD data:", error);
+                    summaryDisplay.innerHTML = `<p style="color: var(--danger-color);">Error generating summary: ${error.message}</p>`;
+                } finally {
+                    generateBtn.disabled = false;
+                }
+            });
+        }
+    </script>
 </body>
 </html> 

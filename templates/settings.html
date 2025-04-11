@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Upai</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 700px; margin: auto; background-color: #f4f7f6; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; text-align: center; margin-bottom: 20px; }
+        h3 { color: #333; margin-top: 25px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        label { display: block; margin-top: 15px; font-weight: bold; color: #555; }
+        input[type="text"],
+        input[type="email"],
+        textarea {
+            width: 95%;
+            padding: 10px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1em;
+        }
+        textarea { min-height: 80px; }
+        button { 
+            background-color: #28a745; 
+            color: white; 
+            border: none; 
+            padding: 12px 20px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 1.1em; 
+            margin-top: 20px; 
+            transition: background-color 0.3s; 
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        button:hover { background-color: #218838; }
+        .flash-messages { list-style: none; padding: 0; margin-bottom: 15px; }
+        .flash-messages li { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+        .flash-messages .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .flash-messages .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .back-link { display: block; text-align: center; margin-top: 20px; color: #007bff; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Settings</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('update_settings') }}" method="POST">
+            <h3>Doctor Details</h3>
+            <label for="name">Doctor Name:</label>
+            <input type="text" id="name" name="name" value="{{ doctor.name or '' }}" required>
+
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" value="{{ doctor.email or '' }}" required>
+
+            <label for="phone_number">Phone Number:</label>
+            <input type="text" id="phone_number" name="phone_number" value="{{ doctor.phone_number or '' }}">
+
+            <label for="registration_number">Registration Number:</label>
+            <input type="text" id="registration_number" name="registration_number" value="{{ doctor.registration_number or '' }}">
+
+            <label for="qualifications">Qualifications:</label>
+            <input type="text" id="qualifications" name="qualifications" value="{{ doctor.qualifications or '' }}">
+
+            <h3>Clinic Details</h3>
+            <label for="clinic_name">Clinic Name:</label>
+            <input type="text" id="clinic_name" name="clinic_name" value="{{ doctor.clinic_name or '' }}">
+
+            <label for="clinic_address">Clinic Address:</label>
+            <textarea id="clinic_address" name="clinic_address">{{ doctor.clinic_address or '' }}</textarea>
+
+            <label for="clinic_timings">Clinic Timings:</label>
+            <input type="text" id="clinic_timings" name="clinic_timings" value="{{ doctor.clinic_timings or '' }}" placeholder="e.g., 09:00 AM - 01:00 PM, 05:00 PM - 08:00 PM">
+
+            <label for="clinic_closed_days">Closed Days:</label>
+            <input type="text" id="clinic_closed_days" name="clinic_closed_days" value="{{ doctor.clinic_closed_days or '' }}" placeholder="e.g., Sunday, Thursday Afternoon">
+
+            <button type="submit">Save Settings</button>
+        </form>
+
+        <a href="{{ url_for('index') }}" class="back-link">Back to Patient List</a>
+    </div>
+</body>
+</html> 

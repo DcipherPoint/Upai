@@ -5,4 +5,5 @@ google-cloud-aiplatform  # For Vertex AI/Gemini
 python-dotenv
 fpdf2
 flask-sock
-websockets 
+websockets
+requests 

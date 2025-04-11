@@ -4,748 +4,1421 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Consultation - {{ patient.name }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
-        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: auto; background-color: #f4f7f6; }
-        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1, h2 { color: #0056b3; text-align: center; margin-bottom: 20px; }
-        h3 { color: #333; margin-top: 25px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        h4 { margin-bottom: 5px; margin-top: 15px; color: #444; }
-        .patient-info { text-align: center; font-size: 1.2em; margin-bottom: 15px; color: #555; }
-        .controls button, .actions button, .live-controls button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-size: 1em; margin: 5px; transition: background-color 0.3s; }
-        .controls button:disabled, .actions button:disabled, .live-controls button:disabled { background-color: #cccccc; cursor: not-allowed; }
-        .controls button:hover:not(:disabled) { background-color: #0056b3; }
-        .actions button.confirm { background-color: #28a745; }
-        .actions button.confirm:hover:not(:disabled) { background-color: #218838; }
-        .actions button.download { background-color: #17a2b8; display: none; /* Hidden initially */ }
-        .actions button.download:hover:not(:disabled) { background-color: #138496; }
-        .live-controls button.start-live { background-color: #ffc107; color: #333; }
-        .live-controls button.start-live:hover:not(:disabled) { background-color: #e0a800; }
-        .live-controls button.stop-live { background-color: #dc3545; }
-        .live-controls button.stop-live:hover:not(:disabled) { background-color: #c82333; }
-        .display-area { margin-top: 10px; background-color: #e9ecef; padding: 15px; border-radius: 5px; min-height: 100px; /* Increased height */ white-space: pre-wrap; font-family: monospace; overflow-y: auto; /* Added scroll */ }
-        textarea { width: 95%; min-height: 150px; margin-top: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; }
-        #loadingIndicator, #liveStatus { display: none; text-align: center; margin-top: 15px; font-weight: bold; color: #dc3545; }
-        #statusMessage { text-align: center; margin-top: 10px; color: #6c757d; }
-        #errorDisplay, #liveErrorDisplay { color: #dc3545; font-weight: bold; margin-top: 15px; text-align: center; min-height: 1.2em; }
-        .button-group { text-align: center; margin-bottom: 20px; }
-        label { font-weight: bold; margin-right: 5px; }
-        select { padding: 5px; border-radius: 4px; }
-        .section { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px dashed #ddd; }
-        .live-transcript-section { background-color: #fff8e1; padding: 15px; border-radius: 5px; border: 1px solid #ffeeba; }
-        #audioVisualizer { width: 100%; height: 60px; background-color: #333; display: block; margin-top: 10px; border-radius: 4px; }
-        #activeMicDisplay { font-style: italic; color: #555; text-align: center; margin-top: 5px; font-size: 0.9em; min-height: 1em; }
-        #processingIndicator { display: none; text-align: center; margin-top: 15px; font-weight: bold; color: #ffc107; }
-        #prescriptionEditor { display: none; margin-top: 20px; border: 1px solid #ccc; padding: 20px; border-radius: 5px; background-color: #f9f9f9; }
-        #prescriptionEditor label { display: block; margin-top: 10px; font-weight: bold; }
-        #prescriptionEditor input[type="text"],
-        #prescriptionEditor input[type="date"],
-        #prescriptionEditor textarea { width: 95%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
-        #prescriptionTable .prescription-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dotted #eee; }
-        #prescriptionTable .prescription-row input { flex: 1; }
-        #prescriptionTable .prescription-row button { background-color: #dc3545; color: white; border: none; padding: 5px 8px; font-size: 0.8em; cursor: pointer; border-radius: 3px; }
-        #prescriptionTable .prescription-row button:hover { background-color: #c82333; }
-        .add-medicine-btn { background-color: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
-        .add-medicine-btn:hover { background-color: #218838; }
+        :root {
+            --primary-color: #0056b3;
+            --secondary-color: #6c757d;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --dark-gray: #dee2e6;
+            --text-color: #343a40;
+            --white: #ffffff;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --border-radius: 6px;
+            --box-shadow: 0 2px 5px rgba(0,0,0,0.07);
+            --header-height: 60px;
+        }
 
-        /* Hide raw AI draft area initially */
-        #aiDraftContainer { display: none; }
+        /* --- Global Styles --- */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            background-color: var(--light-gray);
+            color: var(--text-color);
+        }
+        .app-container { 
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh; 
+        }
+        .header {
+            background-color: var(--primary-color);
+            color: var(--white);
+            padding: 0 30px;
+            height: var(--header-height);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--box-shadow);
+            position: sticky; 
+            top: 0;
+            z-index: 1000;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.7em;
+            font-weight: 600;
+        }
+        .header a, .header a:visited {
+            color: var(--white);
+            text-decoration: none;
+            font-size: 0.95em;
+            padding: 8px 12px;
+            border-radius: var(--border-radius);
+            transition: background-color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header a:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+        .main-content { 
+            padding: 30px;
+            width: 100%; 
+            box-sizing: border-box;
+            margin: 0;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+         .content-wrapper { 
+             width: 100%;
+             max-width: 1300px; /* Wider for consultation */
+             margin: 20px auto;
+        }
+        h2 {
+            color: var(--primary-color);
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+            font-size: 1.8em;
+        }
+        /* --- Consultation Specific Styles --- */
+         h3 {
+            color: #333;
+            margin-top: 0; 
+            border-bottom: 1px solid var(--dark-gray);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 1.4em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        /* Add style for edit prescription button */
+        .edit-prescription-btn {
+            padding: 5px 10px;
+            font-size: 0.9em;
+            margin-left: 15px; /* Space from heading */
+        }
+        h4 {
+            margin-bottom: 10px;
+            margin-top: 20px; 
+            color: #495057;
+            font-size: 1.15em;
+            font-weight: 600;
+        }
+        .patient-info { 
+            text-align: center; 
+            font-size: 1.2em; /* Slightly larger */
+            margin-bottom: 25px; 
+            color: #495057; 
+        }
+        label { 
+            font-weight: 600;
+            margin-right: 5px; 
+            color: #495057; 
+        }
+        select, input[type="text"], input[type="date"], textarea {
+            padding: 10px;
+            border: 1px solid var(--dark-gray);
+            border-radius: var(--border-radius);
+            font-size: 1em;
+            margin-top: 5px;
+            width: 100%;
+            box-sizing: border-box;
+            background-color: var(--white);
+        }
+         select { width: auto; }
+         textarea { min-height: 100px; resize: vertical; }
+         input:focus, select:focus, textarea:focus {
+             outline: none;
+             border-color: var(--primary-color);
+             box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25);
+         }
+         input[type="date"]:disabled {
+             background-color: var(--medium-gray);
+             cursor: not-allowed;
+         }
+
+        /* --- Layout --- */
+        .layout-container {
+            display: flex;
+            gap: 30px; 
+            width: 100%;
+        }
+        .column {
+            flex: 1; /* Equal width columns */
+            display: flex;
+            flex-direction: column;
+            gap: 25px; /* Space between sections */
+        }
+        .section-card { /* Use card styling for sections */
+             background-color: var(--white);
+             padding: 25px;
+             border-radius: var(--border-radius);
+             border: 1px solid var(--dark-gray);
+             box-shadow: var(--box-shadow);
+        }
+
+        /* --- Button Styles w/ Icons --- */
+        .button-group {
+            text-align: center;
+            margin: 25px 0 0 0; /* Only top margin */
+        }
+        .button-group button,
+        .add-medicine-btn,
+        #prescriptionTable .prescription-row button {
+            border: none;
+            padding: 10px 15px; 
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 1em; 
+            margin: 5px;
+            transition: background-color 0.2s, transform 0.1s;
+            font-weight: 500;
+            display: inline-flex; 
+            align-items: center;
+            gap: 8px; 
+            line-height: 1; 
+        }
+        .button-group button:active, .add-medicine-btn:active {
+             transform: scale(0.98);
+        }
+        button:disabled {
+            background-color: var(--medium-gray) !important;
+            cursor: not-allowed;
+            color: var(--secondary-color) !important;
+        }
+        /* Specific Button Colors */
+        .live-controls button.start-live { background-color: var(--warning-color); color: var(--text-color); }
+        .live-controls button.start-live:hover:not(:disabled) { background-color: #ffca2c; }
+        .live-controls button.stop-live { background-color: var(--danger-color); color: white; }
+        .live-controls button.stop-live:hover:not(:disabled) { background-color: #bb2d3b; }
+        .actions button.confirm { background-color: var(--success-color); color: white; }
+        .actions button.confirm:hover:not(:disabled) { background-color: #157347; }
+        .actions button.download { background-color: var(--info-color); color: white; } /* Always display initially, but disabled */
+        .actions button.download:hover:not(:disabled) { background-color: #0aa3bf; }
+        .add-medicine-btn { background-color: var(--primary-color); color: white; }
+        .add-medicine-btn:hover { background-color: #0b5ed7; }
+        #prescriptionTable .prescription-row button { 
+             background-color: var(--danger-color);
+             color: white;
+             padding: 6px 8px; 
+             font-size: 0.9em;
+             align-self: center; 
+             gap: 0; 
+        }
+         #prescriptionTable .prescription-row button i { margin: 0; } 
+        #prescriptionTable .prescription-row button:hover { background-color: #bb2d3b; }
+
+        /* --- Display & Editor Areas --- */
+        .display-area { 
+            margin-top: 15px; 
+            background-color: var(--medium-gray); 
+            padding: 15px; 
+            border-radius: var(--border-radius); 
+            min-height: 150px; 
+            max-height: 40vh; 
+            white-space: pre-wrap; 
+            font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            overflow-y: auto; 
+            line-height: 1.5; 
+            border: 1px solid var(--dark-gray);
+            font-size: 0.95em;
+            margin-bottom: 20px; 
+        }
+        #aiDraftContainer { display: none; margin-bottom: 20px; }
+        #aiDraftContainer textarea { background-color: var(--medium-gray); border-color: var(--dark-gray); color: #495057; min-height: 120px; }
+        
+        #prescriptionEditor { 
+            display: none; 
+            /* Styles moved to .section-card */
+        }
+        #prescriptionEditor label { display: block; margin-top: 15px; }
+        #prescriptionTable { margin-top: 10px; } /* Add space above table */
+        #prescriptionTable .prescription-row { 
+            display: flex; 
+            gap: 10px; 
+            align-items: flex-start; 
+            margin-bottom: 15px; 
+            padding-bottom: 15px; 
+            border-bottom: 1px dashed #ced4da; 
+        }
+         #prescriptionTable .prescription-row:last-child {
+             border-bottom: none;
+             margin-bottom: 0;
+             padding-bottom: 0;
+         }
+        #prescriptionTable .prescription-row input { flex: 1; margin-top: 0; } /* Adjust input margin */
+         #prescriptionTable .prescription-row textarea { flex: 1; margin-top: 0; min-height: 40px; } /* Adjust textarea */
+        .follow-up-container { 
+            margin-top: 20px; 
+            background-color: var(--medium-gray);
+            padding: 10px 15px;
+            border-radius: var(--border-radius);
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap; /* Allow wrapping */
+            gap: 10px; /* Add gap */
+        }
+        .follow-up-container label[for="followUpDate"] { margin: 0; }
+        .follow-up-container input[type="checkbox"] { margin-right: 5px; width: auto; }
+        .follow-up-container label[for="enableFollowUpDate"] { font-weight: normal; margin: 0; }
+        .follow-up-container input[type="date"] { width: auto; padding: 8px; }
+
+        /* --- Utility & Status --- */
+        #liveStatus { display: none; text-align: center; margin: 15px 0; font-weight: 500; color: var(--primary-color); }
+        #errorDisplay, #liveErrorDisplay { color: var(--danger-color); font-weight: 500; margin-top: 15px; text-align: center; min-height: 1.2em; }
+        #activeMicDisplay { font-style: italic; color: var(--secondary-color); text-align: center; margin-top: 8px; font-size: 0.9em; min-height: 1em; }
+        #processingIndicator { display: none; text-align: center; margin: 15px 0; font-weight: bold; color: #fd7e14; }
+        #audioVisualizer { width: 100%; height: 50px; background-color: #212529; display: block; margin-top: 15px; border-radius: var(--border-radius); margin-bottom: 15px; }
+        hr { border: none; height: 1px; background-color: var(--dark-gray); margin: 30px 0; }
+        i { vertical-align: middle; } /* Align icons */
+
+        /* Styles for the ADR Alert Box */
+        #adr-alert-box {
+            background-color: #ffeacc; /* Light orange */
+            border: 1px solid #ffa500; /* Orange border */
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 0; /* Align with top of right column */
+            margin-bottom: 25px; /* Space below */
+            max-height: 300px; /* Limit height */
+            overflow-y: auto; /* Add scroll if content exceeds max height */
+            display: none; /* Hidden by default */
+        }
+        #adr-alert-box h5 {
+            margin-top: 0;
+            color: #cc8400; /* Darker orange for header */
+            font-weight: bold;
+        }
+        #adr-alert-box ul {
+            padding-left: 20px;
+            margin-bottom: 0;
+        }
+        #adr-alert-box li {
+            margin-bottom: 5px;
+        }
+        #adr-alert-box .drug-name {
+            font-weight: bold;
+        }
+        #liveTranscriptArea p { margin-bottom: 0.5em; } /* Spacing for transcript lines */
+        #interimTranscript { min-height: 1.2em; color: var(--secondary-color); font-style: italic; text-align: center; margin-top: 5px;} /* Style interim */
+
+        #prescriptionTable th, #prescriptionTable td {
+            padding: 8px; /* Add padding to table cells if using a table structure */
+            vertical-align: middle;
+        }
+
+        /* Hide original prescription table and add button */
+        #prescriptionTable, #addMedicineButton {
+            display: none;
+        }
+
+        /* --- Modal Styles --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6); /* Darker overlay */
+            display: none; /* Hidden by default */
+            justify-content: center;
+            align-items: center;
+            z-index: 1050; /* Ensure it's above other content */
+        }
+        .modal-content {
+            background-color: var(--white);
+            padding: 30px; /* More padding */
+            border-radius: var(--border-radius);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            width: 80%; /* Wider modal */
+            max-width: 900px; /* Max width */
+            max-height: 85vh; /* Limit height */
+            overflow-y: auto; /* Scroll if content overflows */
+            position: relative;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--dark-gray);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .modal-header h4 {
+            margin: 0; /* Remove default margins */
+        }
+        .modal-close-btn {
+            background: none;
+            border: none;
+            font-size: 1.8em; /* Larger close icon */
+            cursor: pointer;
+            color: var(--secondary-color);
+            padding: 0 5px;
+            line-height: 1;
+        }
+         .modal-close-btn:hover {
+             color: var(--text-color);
+         }
+        .modal-body {
+             margin-bottom: 20px;
+         }
+         /* Styles for table inside modal */
+         #modalPrescriptionTable .prescription-row-header,
+         #modalPrescriptionTable .prescription-row {
+             display: flex;
+             gap: 15px; /* Slightly larger gap */
+             align-items: flex-start;
+             margin-bottom: 15px;
+             padding-bottom: 15px;
+             border-bottom: 1px dashed #ced4da;
+         }
+          #modalPrescriptionTable .prescription-row:last-child {
+              border-bottom: none;
+              margin-bottom: 0;
+              padding-bottom: 0;
+          }
+          #modalPrescriptionTable .prescription-row-header > div {
+              font-weight: bold;
+              color: var(--secondary-color);
+              font-size: 0.9em;
+              text-transform: uppercase;
+              padding-bottom: 5px;
+          }
+          #modalPrescriptionTable .prescription-row input,
+          #modalPrescriptionTable .prescription-row textarea {
+              flex: 1; /* Allow flex grow/shrink */
+              margin-top: 0;
+              padding: 8px; /* Slightly smaller padding */
+              font-size: 0.95em;
+          }
+           #modalPrescriptionTable .prescription-row textarea {
+               min-height: 40px;
+               resize: vertical;
+           }
+            /* Define specific flex properties for columns */
+           #modalPrescriptionTable [data-col="med-name"] { flex: 3 1 150px; } /* More space for name */
+           #modalPrescriptionTable [data-col="dosage"] { flex: 2 1 100px; }
+           #modalPrescriptionTable [data-col="frequency"] { flex: 2 1 100px; }
+           #modalPrescriptionTable [data-col="duration"] { flex: 2 1 100px; }
+           #modalPrescriptionTable [data-col="instructions"] { flex: 4 1 200px; } /* More space for instructions */
+           #modalPrescriptionTable [data-col="action"] { flex: 0 0 40px; text-align: center; } /* Fixed width for button */
+
+           #modalPrescriptionTable .remove-medicine-btn {
+                background-color: var(--danger-color);
+                color: white;
+                padding: 6px 8px;
+                font-size: 0.9em;
+                align-self: center; /* Center button vertically */
+                gap: 0;
+                border: none;
+                border-radius: var(--border-radius);
+                cursor: pointer;
+                transition: background-color 0.2s;
+                margin-top: 5px; /* Align with input tops */
+           }
+           #modalPrescriptionTable .remove-medicine-btn i { margin: 0; }
+           #modalPrescriptionTable .remove-medicine-btn:hover { background-color: #bb2d3b; }
+
+        .modal-footer {
+            text-align: right;
+            border-top: 1px solid var(--dark-gray);
+            padding-top: 15px;
+            margin-top: 20px;
+        }
+        .modal-footer button {
+             /* Use existing button styles */
+             padding: 10px 20px; /* Slightly larger padding */
+             margin-left: 10px;
+        }
+         .modal-footer .btn-secondary {
+             background-color: var(--secondary-color);
+             color: white;
+         }
+         .modal-footer .btn-secondary:hover {
+              background-color: #5a6268;
+          }
+         .modal-footer .btn-primary {
+              background-color: var(--primary-color);
+              color: white;
+          }
+          .modal-footer .btn-primary:hover {
+               background-color: #004085;
+           }
+
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Smart Care Assistant - Upai</h1>
-        <h2>Consultation Record</h2>
-        <div class="patient-info">Patient: <strong>{{ patient.name }}</strong> (ID: {{ patient_id }})</div>
-
-        <!-- Audio Input Selection -->
-        <div class="button-group audio-selection">
-            <label for="audioSource">Select Microphone:</label>
-            <select id="audioSource">
-                <option value="default">Default Microphone</option>
-            </select>
-            <div id="activeMicDisplay"></div> <!-- Display for active mic -->
-        </div>
-        <hr>
-
-        <!-- Combined Live Recording & Processing Section -->
-        <div>
-            <h3>Record & Process Consultation</h3>
-             <p style="font-size: 0.9em; color: #6c757d; text-align: center; margin-bottom: 10px;">
-                <i>Click "Start Recording", dictate, then click "Stop & Process". The transcript will appear below, followed by the AI draft.</i>
-            </p>
-            <div id="liveStatus">Ready to record.</div>
-            <div id="liveErrorDisplay"></div>
-            <div class="button-group live-controls">
-                <!-- Renamed buttons -->
-                <button id="startRecordingButton" class="start-live">Start Recording</button>
-                <button id="stopAndProcessButton" class="stop-live" disabled>Stop & Process</button>
+    <div class="app-container">
+         <header class="header">
+            <h1><i class="bi bi-heart-pulse-fill"></i> Upai Assistant</h1>
+            <div> 
+                <a href="{{ url_for('index') }}" style="margin-right: 15px;"><i class="bi bi-people-fill"></i> Patients</a>
+                <a href="{{ url_for('settings_page') }}"><i class="bi bi-gear-fill"></i> Settings</a>
             </div>
-            <h4>Live Audio Input Visualizer</h4>
-            <canvas id="audioVisualizer"></canvas>
-            <h4>Live Transcript (Finalized)</h4>
-            <div id="liveTranscriptArea" class="display-area">(Transcript will appear here as you speak)</div>
+        </header>
 
-            <div id="processingIndicator">Processing transcript with AI...</div>
+        <main class="main-content">
+            <div class="content-wrapper">
+                <h2>Consultation Record</h2>
+                <div class="patient-info">Patient: <strong>{{ patient.name }}</strong> (ID: {{ patient_id }})</div>
 
-            <!-- Container for AI Draft (hidden initially) -->
-            <div id="aiDraftContainer">
-                <h4>AI Generated Draft (Reference)</h4>
-                <textarea id="aiDraftArea" placeholder="AI summary and prescription draft will appear here after processing." readonly></textarea>
-            </div>
+                <div class="audio-selection" style="text-align: center; margin-bottom: 20px;">
+                    <label for="audioSource"><i class="bi bi-mic"></i> Microphone:</label>
+                    <select id="audioSource">
+                        <option value="default">Default Microphone</option>
+                    </select>
+                    <div id="activeMicDisplay"></div>
+                </div>
+                <hr>
 
-            <!-- Prescription Editor Section (hidden initially) -->
-            <div id="prescriptionEditor">
-                <h3>Consultation Details Editor</h3>
-                <form id="consultationForm">
-                     <!-- Patient/Doctor IDs are handled in JS -->
-                    <input type="hidden" id="originalAiSummary"> <!-- To store the original AI summary -->
+                <!-- Main Layout Container: Two Columns -->
+                <div class="layout-container">
 
-                    <label for="chiefComplaints">Chief Complaints:</label>
-                    <textarea id="chiefComplaints" name="chief_complaints" rows="3"></textarea>
-
-                    <label for="clinicalFindings">Clinical Findings:</label>
-                    <textarea id="clinicalFindings" name="clinical_findings" rows="3"></textarea>
-
-                    <label for="internalNotes">Internal Notes:</label>
-                    <textarea id="internalNotes" name="internal_notes" rows="2" placeholder="Optional private notes"></textarea>
-
-                    <label for="diagnosis">Diagnosis:</label>
-                    <textarea id="diagnosis" name="diagnosis" rows="2"></textarea>
-
-                    <label for="proceduresConducted">Procedures Conducted:</label>
-                    <textarea id="proceduresConducted" name="procedures_conducted" rows="2"></textarea>
-
-                    <h4>Prescription</h4>
-                    <div id="prescriptionTable">
-                        <!-- Prescription rows will be added here -->
-                    </div>
-                    <button type="button" id="addMedicineButton" class="add-medicine-btn">+ Add Medicine</button>
-
-                    <label for="investigations">Investigations:</label>
-                    <textarea id="investigations" name="investigations" rows="2"></textarea>
-
-                    <label for="adviceGiven">Advice Given:</label>
-                    <textarea id="adviceGiven" name="advice_given" rows="2"></textarea>
-
-                    <div> <!-- Wrapper for checkbox and date -->
-                        <label for="followUpDate">Follow-Up Date:</label>
-                        <input type="checkbox" id="enableFollowUpDate" style="margin-left: 10px;">
-                        <label for="enableFollowUpDate" style="font-weight: normal; margin-left: 2px;">Enable</label>
-                        <input type="date" id="followUpDate" name="follow_up_date" disabled style="margin-left: 5px; width: auto;">
+                    <!-- Left Column: Recording & Transcript -->
+                    <div class="column">
+                        <div class="section-card">
+                            <h3><i class="bi bi-record-circle-fill"></i> Record Consultation</h3>
+                            <p style="font-size: 0.9em; color: var(--secondary-color); text-align: center; margin-bottom: 15px;">
+                                <i>Click Start, dictate, then Stop & Process.</i>
+                            </p>
+                            <div id="liveStatus">Ready to record.</div>
+                            <div id="liveErrorDisplay"></div>
+                            <div class="button-group live-controls">
+                                <button id="startRecordingButton" class="start-live"><i class="bi bi-mic-fill"></i> Start Recording</button>
+                                <button id="stopAndProcessButton" class="stop-live" disabled><i class="bi bi-stop-circle-fill"></i> Stop & Process</button>
+                            </div>
+                            <h4>Live Audio Input</h4>
+                            <canvas id="audioVisualizer"></canvas>
+                            <h4>Live Transcript (Finalized)</h4>
+                            <div id="liveTranscriptArea" class="display-area">(Transcript will appear here...)</div>
+                             <div id="interimTranscript"></div> <!-- Placeholder for interim -->
+                             <div id="processingIndicator"><i class="bi bi-hourglass-split"></i> Processing transcript with AI...</div>
+                             <div id="errorDisplay"></div> <!-- General error display -->
+                        </div>
                     </div>
 
-                </form>
-            </div>
-            <!-- End Prescription Editor Section -->
+                    <!-- Right Column: Editor & Alerts -->
+                    <div class="column">
+                        <!-- New ADR Alert Box -->
+                        <div id="adr-alert-box">
+                            <h5><i class="bi bi-exclamation-triangle-fill me-1"></i> Potential ADRs Detected</h5>
+                            <ul id="adr-list">
+                                <!-- Validated ADRs will be listed here -->
+                            </ul>
+                        </div>
 
-            <div class="button-group actions">
-                <button id="confirmButton" class="confirm" disabled>Review/Edit & Save Consultation</button>
-                <button id="downloadButton" class="download">Download PDF</button>
-            </div>
-        </div>
+                        <!-- Editor Section -->
+                        <div class="section-card">
+                            <h3><i class="bi bi-pencil-square"></i> Consultation Editor</h3>
+                            
+                            <!-- AI Draft Reference -->
+                            <div id="aiDraftContainer">
+                                <h4><i class="bi bi-robot"></i> AI Draft (Reference)</h4>
+                                <textarea id="aiDraftArea" placeholder="Original AI output for reference." readonly></textarea>
+                            </div>
 
+                            <!-- Editor Form -->
+                            <div id="prescriptionEditor"> <!-- Initially hidden via JS -->
+                                <form id="consultationForm">
+                                    <input type="hidden" id="consultationId" name="consultation_id"> <!-- For potential future use -->
+                                    
+                                    <label for="chiefComplaints">Chief Complaints:</label>
+                                    <textarea id="chiefComplaints" name="chief_complaints" rows="3"></textarea>
+
+                                    <label for="clinicalFindings">Clinical Findings:</label>
+                                    <textarea id="clinicalFindings" name="clinical_findings" rows="3"></textarea>
+
+                                    <label for="internalNotes">Internal Notes:</label>
+                                    <textarea id="internalNotes" name="internal_notes" rows="2" placeholder="Optional private notes"></textarea>
+
+                                    <label for="diagnosis">Diagnosis:</label>
+                                    <textarea id="diagnosis" name="diagnosis" rows="2"></textarea>
+
+                                    <label for="proceduresConducted">Procedures Conducted:</label>
+                                    <textarea id="proceduresConducted" name="procedures_conducted" rows="2"></textarea>
+
+                                    <h4><i class="bi bi-prescription"></i> Prescription
+                                        <button type="button" id="editPrescriptionBtn" class="btn-primary edit-prescription-btn" style="line-height: 1;"><i class="bi bi-pencil"></i> Edit</button>
+                                    </h4>
+                                    <!-- This table is now hidden by default via CSS -->
+                                    <div id="prescriptionTable">
+                                        <!-- Header Row (Optional but good practice) -->
+                                        <div class="prescription-row-header" style="display: flex; gap: 10px; margin-bottom: 5px; font-weight: bold; color: var(--secondary-color);">
+                                            <div style="flex: 3;">Medicine Name</div>
+                                            <div style="flex: 2;">Dosage</div>
+                                            <div style="flex: 2;">Frequency</div>
+                                            <div style="flex: 2;">Duration</div>
+                                            <div style="flex: 3;">Instructions</div>
+                                            <div style="width: 40px;"></div> <!-- Spacer for button -->
+                                        </div>
+                                        <!-- Prescription rows will be added here -->
+                                    </div>
+                                    <!-- This button is now hidden by default via CSS -->
+                                    <button type="button" id="addMedicineButton" class="add-medicine-btn"><i class="bi bi-plus-circle"></i> Add Medicine</button>
+
+                                    <!-- Container for hidden fields synced from modal -->
+                                    <div id="hiddenPrescriptionFields"></div>
+
+                                    <label for="investigations">Investigations:</label>
+                                    <textarea id="investigations" name="investigations" rows="2"></textarea>
+
+                                    <label for="adviceGiven">Advice Given:</label>
+                                    <textarea id="adviceGiven" name="advice_given" rows="2"></textarea>
+
+                                    <div class="follow-up-container">
+                                        <input type="checkbox" id="enableFollowUpDate">
+                                        <label for="enableFollowUpDate">Enable Follow-Up Date:</label>
+                                        <input type="date" id="followUpDate" name="follow_up_date" disabled>
+                                    </div>
+                                </form>
+                            </div> 
+                            <!-- End Editor Form -->
+
+                            <!-- Action Buttons -->
+                            <div class="button-group actions">
+                                <button type="button" id="confirmButton" class="confirm" disabled><i class="bi bi-check-lg"></i> Save Consultation</button>
+                                <button type="button" id="downloadButton" class="download" disabled><i class="bi bi-download"></i> Download PDF</button>
+                            </div>
+                            <div id="saveStatus" style="text-align: center; margin-top: 15px; color: var(--success-color); font-weight: bold;"></div>
+                        </div>
+                    </div> 
+                </div> 
+            </div> <!-- End Content Wrapper -->
+        </main>
     </div>
 
+    <!-- Prescription Modal -->
+    <div id="prescriptionModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4>Edit Prescription Details</h4>
+                <button type="button" class="modal-close-btn" id="modalCloseBtn" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalPrescriptionTable">
+                     <!-- Header Row -->
+                     <div class="prescription-row-header">
+                         <div data-col="med-name">Medicine Name</div>
+                         <div data-col="dosage">Dosage</div>
+                         <div data-col="frequency">Frequency</div>
+                         <div data-col="duration">Duration</div>
+                         <div data-col="instructions">Instructions</div>
+                         <div data-col="action">Action</div> <!-- Spacer for button -->
+                     </div>
+                    <!-- Prescription rows will be added here -->
+                </div>
+                 <button type="button" id="modalAddMedicineButton" class="add-medicine-btn" style="margin-top: 20px;"><i class="bi bi-plus-circle"></i> Add Medicine</button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="modalCancelButton" class="btn-secondary">Cancel</button>
+                <button type="button" id="modalSaveChangesButton" class="btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+    <!-- End Prescription Modal -->
+
     <script>
-        // --- Element References (Adjusted) ---
-        // REMOVED: startButton, stopButton, transcriptArea, loadingIndicator, statusMessage, errorDisplay
-        const confirmButton = document.getElementById('confirmButton');
+        // --- Global Variables ---
+        let socket = null;
+        let audioContext = null;
+        let processorNode = null;
+        let sourceNode = null;
+        let localStream = null; 
+        let accumulatedTranscript = '';
+        let isRecording = false;
+        let isProcessing = false; // Track AI processing state
+        let adrCheckIntervalId = null;
+        const adrCheckInterval = 30000;
+        let lastTranscriptLengthForADR = 0;
+        const TARGET_SAMPLE_RATE = 48000; 
+        let savedConsultationId = null; // Store ID after saving
+
+        // --- DOM Elements ---
+        const startButton = document.getElementById('startRecordingButton');
+        const stopButton = document.getElementById('stopAndProcessButton');
+        const confirmButton = document.getElementById('confirmButton'); // Corrected variable name
         const downloadButton = document.getElementById('downloadButton');
+        const transcriptOutput = document.getElementById('liveTranscriptArea');
+        const interimTranscriptDisplay = document.getElementById('interimTranscript'); // Corrected ID reference
+        const processingIndicator = document.getElementById('processingIndicator');
+        const errorDisplay = document.getElementById('errorDisplay');
+        const liveErrorDisplay = document.getElementById('liveErrorDisplay');
+        const liveStatus = document.getElementById('liveStatus');
+        const prescriptionEditor = document.getElementById('prescriptionEditor');
+        const aiDraftContainer = document.getElementById('aiDraftContainer');
         const aiDraftArea = document.getElementById('aiDraftArea');
+        const consultationForm = document.getElementById('consultationForm');
+        const addMedicineButton = document.getElementById('addMedicineButton');
+        const prescriptionTable = document.getElementById('prescriptionTable');
+        const enableFollowUpCheckbox = document.getElementById('enableFollowUpDate');
+        const followUpDateInput = document.getElementById('followUpDate');
+        const saveStatus = document.getElementById('saveStatus');
+        const adrAlertBox = document.getElementById('adr-alert-box');
+        const adrList = document.getElementById('adr-list');
         const audioSourceSelect = document.getElementById('audioSource');
         const activeMicDisplay = document.getElementById('activeMicDisplay');
-
-        const startRecordingButton = document.getElementById('startRecordingButton'); // Renamed
-        const stopAndProcessButton = document.getElementById('stopAndProcessButton'); // Renamed
-        const liveTranscriptArea = document.getElementById('liveTranscriptArea');
-        const liveStatus = document.getElementById('liveStatus');
-        const liveErrorDisplay = document.getElementById('liveErrorDisplay');
         const canvas = document.getElementById('audioVisualizer');
         const canvasCtx = canvas.getContext('2d');
-        const processingIndicator = document.getElementById('processingIndicator'); // New indicator
+        const editPrescriptionBtn = document.getElementById('editPrescriptionBtn'); // Button to open modal
+        const hiddenPrescriptionFieldsContainer = document.getElementById('hiddenPrescriptionFields'); // Container for hidden inputs
 
-        const aiDraftContainer = document.getElementById('aiDraftContainer');
-        const prescriptionEditor = document.getElementById('prescriptionEditor');
-        const prescriptionTable = document.getElementById('prescriptionTable');
-        const addMedicineButton = document.getElementById('addMedicineButton');
-        const consultationForm = document.getElementById('consultationForm');
-        const originalAiSummaryInput = document.getElementById('originalAiSummary');
-        // Input field refs for the editor
-        const chiefComplaintsInput = document.getElementById('chiefComplaints');
-        const clinicalFindingsInput = document.getElementById('clinicalFindings');
-        const internalNotesInput = document.getElementById('internalNotes');
-        const diagnosisInput = document.getElementById('diagnosis');
-        const proceduresConductedInput = document.getElementById('proceduresConducted');
-        const investigationsInput = document.getElementById('investigations');
-        const adviceGivenInput = document.getElementById('adviceGiven');
-        const followUpDateInput = document.getElementById('followUpDate');
-        const enableFollowUpDateCheckbox = document.getElementById('enableFollowUpDate'); // New checkbox ref
+        // Modal Elements
+        const prescriptionModal = document.getElementById('prescriptionModal');
+        const modalCloseBtn = document.getElementById('modalCloseBtn');
+        const modalCancelButton = document.getElementById('modalCancelButton');
+        const modalSaveChangesButton = document.getElementById('modalSaveChangesButton');
+        const modalPrescriptionTable = document.getElementById('modalPrescriptionTable');
+        const modalAddMedicineButton = document.getElementById('modalAddMedicineButton');
 
-        // --- Variables (Adjusted) ---
-        const patientId = "{{ patient_id }}";
-        const doctorId = "{{ doctor_id }}";
-        // REMOVED: mediaRecorderMain, audioChunksMain
-        let currentConsultationId = null;
-        let liveWebSocket = null;
-        let liveStream = null;
-        let accumulatedFinalTranscript = ""; // Variable to store final transcript parts
+        const patientId = "{{ patient_id }}"; // Get patient ID from Flask
 
-        // Web Audio API variables
-        let audioCtx = null;
-        let analyser = null;
-        let source = null;
-        let scriptNode = null;
-        let dataArray = null;
-        let bufferLength = 0;
-        let drawVisual = null;
-        const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096;
 
-        // --- Initialization ---
-        document.addEventListener('DOMContentLoaded', () => {
-            populateAudioDevices();
-
-            // --- Event Listeners Setup ---
-            // Ensure listeners are added after DOM is ready
-
-            // Add Medicine Button
-            if(addMedicineButton) { // Check if element exists
-                addMedicineButton.addEventListener('click', () => addPrescriptionRow()); // Pass no args for empty row
-                console.log('Add Medicine listener attached.');
-            } else {
-                 console.error('addMedicineButton not found!');
+        // --- Audio Processing Setup ---
+        function setupAudioProcessingNodes(stream) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_SAMPLE_RATE });
+                console.log(`AudioContext created with sample rate: ${audioContext.sampleRate}`);
+                 if (audioContext.sampleRate !== TARGET_SAMPLE_RATE) {
+                     console.warn(`Requested ${TARGET_SAMPLE_RATE}Hz but got ${audioContext.sampleRate}Hz.`);
+                 }
             }
+            sourceNode = audioContext.createMediaStreamSource(stream);
+            const bufferSize = 4096; 
+            processorNode = audioContext.createScriptProcessor(bufferSize, 1, 1); 
 
-            // Remove Medicine Button (Event Delegation)
-             if(prescriptionTable) {
-                prescriptionTable.addEventListener('click', function(event) {
-                    if (event.target && event.target.classList.contains('remove-medicine-btn')) {
-                        removePrescriptionRow(event.target);
-                    }
-                });
-                console.log('Remove Medicine listener attached via delegation.');
-            } else {
-                 console.error('prescriptionTable not found!');
-            }
-
-             // Follow-up Date Checkbox
-             if(enableFollowUpDateCheckbox && followUpDateInput) {
-                 enableFollowUpDateCheckbox.addEventListener('change', function() {
-                     followUpDateInput.disabled = !this.checked;
-                     if (!this.checked) {
-                         followUpDateInput.value = ''; // Clear date if disabled
-                     }
-                 });
-                 console.log('Follow-up checkbox listener attached.');
-             } else {
-                  console.error('Follow-up checkbox or date input not found!');
-             }
-        });
-
-        // --- Audio Device Selection (Unchanged) ---
-        async function populateAudioDevices() {
-            activeMicDisplay.textContent = 'Checking permissions...';
-            try {
-                // Need to get permission first to enumerate devices with labels
-                // Use a temporary stream
-                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // Stop the tracks immediately after permission is granted
-                tempStream.getTracks().forEach(track => track.stop());
-
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
-
-                audioSourceSelect.innerHTML = ''; // Clear existing options
-                if (audioInputDevices.length === 0) {
-                     audioSourceSelect.innerHTML = '<option value="default">No microphones found</option>';
-                     activeMicDisplay.textContent = 'No microphones detected.';
-                     return;
+            processorNode.onaudioprocess = (event) => {
+                if (!isRecording || !socket || socket.readyState !== WebSocket.OPEN) {
+                    return; 
                 }
-
-                let defaultSelected = false;
-                audioInputDevices.forEach((device, index) => {
-                    const option = document.createElement('option');
-                    option.value = device.deviceId;
-                    option.text = device.label || `Microphone ${index + 1}`;
-                    // Select the first non-default device if available
-                    if (device.deviceId !== 'default' && !defaultSelected) {
-                        // option.selected = true; // Optionally pre-select first real mic
-                        defaultSelected = true;
-                    }
-                    audioSourceSelect.appendChild(option);
-                });
-                updateActiveMicDisplay(); // Update display initially
-                audioSourceSelect.addEventListener('change', updateActiveMicDisplay);
-
-            } catch (err) {
-                console.error('Error enumerating audio devices:', err);
-                audioSourceSelect.innerHTML = '<option value="default">Error finding devices</option>';
-                activeMicDisplay.textContent = 'Error: Check mic permissions.';
-                errorDisplay.textContent = 'Could not list microphones. Grant permission and refresh.';
-                liveErrorDisplay.textContent = 'Could not list microphones.';
-            }
-        }
-
-        function getSelectedAudioConstraints() {
-            const deviceId = audioSourceSelect.value;
-            if (deviceId && deviceId !== 'default') {
-                return { audio: { deviceId: { exact: deviceId } } };
-            }
-            return { audio: true }; // Default device
-        }
-
-        function updateActiveMicDisplay() {
-            const selectedOption = audioSourceSelect.options[audioSourceSelect.selectedIndex];
-            if (selectedOption) {
-                activeMicDisplay.textContent = `Using: ${selectedOption.text}`;
-            } else {
-                activeMicDisplay.textContent = 'Select a microphone.';
-            }
-        }
-
-        // --- Main Recording & Processing Logic (Replaces Live Demo Logic) ---
-        startRecordingButton.addEventListener('click', async () => {
-            // REMOVED: Check for mediaRecorderMain state
-            if (scriptNode) { // Check if already recording via scriptNode
-                 liveErrorDisplay.textContent = 'Already recording.';
-                 return;
-            }
-            updateActiveMicDisplay();
-            const constraints = {
-                audio: {
-                    ...(getSelectedAudioConstraints().audio),
-                    sampleRate: 16000,
-                    channelCount: 1
+                const inputData = event.inputBuffer.getChannelData(0);
+                const int16Array = new Int16Array(inputData.length);
+                for (let i = 0; i < inputData.length; i++) {
+                    int16Array[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767; 
                 }
+                socket.send(int16Array.buffer);
             };
+            sourceNode.connect(processorNode);
+            processorNode.connect(audioContext.destination); 
+            console.log("Audio processing nodes set up.");
+            visualize(stream); 
+        }
+
+        // --- WebSocket Setup ---
+        function setupWebSocket() {
+            return new Promise((resolve, reject) => {
+                if (socket) {
+                    try { socket.close(); } catch (e) { console.error("Error closing previous socket:", e); }
+                }
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/live_transcript`;
+                console.log(`Attempting WebSocket connection to: ${wsUrl}`);
+                socket = new WebSocket(wsUrl);
+
+                accumulatedTranscript = '';
+                transcriptOutput.innerHTML = '(Transcript will appear here...)'; // Reset placeholder
+                interimTranscriptDisplay.textContent = '';
+                lastTranscriptLengthForADR = 0;
+                updateADRAlerts([]); 
+                liveErrorDisplay.textContent = ''; // Clear previous errors
+
+                socket.onopen = function(event) {
+                    console.log("WebSocket connection opened");
+                     if (adrCheckIntervalId) clearInterval(adrCheckIntervalId);
+                     adrCheckIntervalId = setInterval(triggerADRCheck, adrCheckInterval);
+                     console.log(`Started ADR check interval (${adrCheckInterval/1000}s)`);
+                     resolve(socket); 
+                };
+
+                socket.onmessage = function(event) {
+                    const message = event.data;
+                    if (transcriptOutput.innerHTML === '(Transcript will appear here...)') {
+                         transcriptOutput.innerHTML = ''; // Clear placeholder on first message
+                    }
+                    if (message.startsWith('FINAL:')) {
+                        const finalTranscript = message.substring(6).trim();
+                        if (finalTranscript) {
+                            accumulatedTranscript += finalTranscript + " ";
+                            const p = document.createElement('p');
+                            p.textContent = finalTranscript;
+                            transcriptOutput.appendChild(p);
+                            transcriptOutput.scrollTop = transcriptOutput.scrollHeight;
+                        }
+                        interimTranscriptDisplay.textContent = '';
+                    } else if (message.startsWith('INTERIM:')) {
+                        interimTranscriptDisplay.textContent = message.substring(8);
+                    } else if (message.startsWith('ERROR:')) {
+                        console.error("Received STT Error:", message.substring(6));
+                        liveErrorDisplay.textContent = `Speech Service Error: ${message.substring(6)}`;
+                        // Consider stopping recording on critical backend errors
+                    }
+                    else {
+                        console.warn("Received unexpected WebSocket message:", message);
+                    }
+                };
+
+                socket.onclose = function(event) {
+                    console.log("WebSocket connection closed:", event.code, event.reason);
+                    if (adrCheckIntervalId) {
+                        clearInterval(adrCheckIntervalId);
+                        adrCheckIntervalId = null;
+                        console.log("Stopped ADR check interval on WebSocket close.");
+                    }
+                     if (accumulatedTranscript.length > 0 && isRecording) { 
+                         console.log("Performing final ADR check on close.");
+                         triggerADRCheck();
+                     }
+                     if (isRecording) { // Handle unexpected close during recording
+                        console.warn("WebSocket closed unexpectedly during recording.");
+                        stopAudioProcessing(); 
+                        isRecording = false;
+                        // Don't set isProcessing here, let stop button handle it
+                        updateButtonStates();
+                        liveStatus.textContent = "Connection lost.";
+                        liveStatus.style.color = 'var(--danger-color)';
+                     }
+                };
+
+                socket.onerror = function(error) {
+                    console.error("WebSocket Error:", error);
+                    liveErrorDisplay.textContent = 'WebSocket connection error. Cannot get live transcript.';
+                    if (adrCheckIntervalId) {
+                        clearInterval(adrCheckIntervalId);
+                        adrCheckIntervalId = null;
+                         console.log("Stopped ADR check interval due to WebSocket error");
+                    }
+                     stopAudioProcessing();
+                     isRecording = false;
+                     isProcessing = false; // Ensure processing stops on error
+                     updateButtonStates();
+                    // alert('WebSocket connection error. Please try starting the recording again.'); // Already showing in liveErrorDisplay
+                    reject(error); 
+                };
+            });
+        }
+
+        // --- Stop Audio Processing & Stream ---
+        function stopAudioProcessing() {
+            console.log("Stopping audio processing and closing stream...");
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                console.log("MediaStream tracks stopped.");
+                localStream = null;
+            }
+            if (processorNode) {
+                processorNode.disconnect();
+                processorNode = null;
+                console.log("ScriptProcessorNode disconnected.");
+            }
+            if (sourceNode) {
+                sourceNode.disconnect();
+                sourceNode = null;
+                 console.log("MediaStreamSourceNode disconnected.");
+            }
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height); // Clear visualizer
+            console.log("Audio processing stopped.");
+            activeMicDisplay.textContent = ''; // Clear mic display
+        }
+
+
+        // --- Process Transcript with AI ---
+        async function processTranscript() {
+             if (!accumulatedTranscript.trim()) {
+                 errorDisplay.textContent = "No transcript captured to process.";
+                 return;
+             }
+             console.log("Processing transcript...");
+             isProcessing = true;
+             updateButtonStates(); // Disable buttons during processing
+             processingIndicator.style.display = 'block';
+             errorDisplay.textContent = '';
+             saveStatus.textContent = ''; // Clear previous save status
+
+             try {
+                const response = await fetch('/process_transcript_text', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ transcript_text: accumulatedTranscript })
+                });
+
+                if (!response.ok) {
+                    // Check if response is JSON before parsing
+                    const contentType = response.headers.get("content-type");
+                    let errorMsg = `HTTP error! Status: ${response.status}`;
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                        const errorData = await response.json();
+                        errorMsg = errorData.error || errorMsg;
+                    } else {
+                         errorMsg = await response.text() || errorMsg; // Get text if not JSON
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                const data = await response.json();
+                console.log("AI Processing Response:", data);
+
+                if (data.ai_draft) {
+                    // Populate editor fields
+                    populateEditor(data.ai_draft);
+                    // Store original raw text if needed (e.g., for reference)
+                    aiDraftArea.value = data.original_gemini_text || '';
+                    aiDraftContainer.style.display = 'block'; // Show the AI draft area
+                    prescriptionEditor.style.display = 'block'; // Show the editor
+                     errorDisplay.textContent = ''; // Clear errors on success
+                } else {
+                     throw new Error("AI did not return a valid draft structure.");
+                }
+
+             } catch (error) {
+                 console.error('Error processing transcript:', error);
+                 errorDisplay.textContent = `Error processing transcript: ${error.message}`;
+                 prescriptionEditor.style.display = 'none'; // Hide editor on error
+                 aiDraftContainer.style.display = 'none';
+             } finally {
+                 isProcessing = false;
+                 processingIndicator.style.display = 'none';
+                 updateButtonStates(); // Re-enable relevant buttons (Confirm/Download if successful)
+             }
+        }
+        
+        // --- Populate Editor ---
+        function populateEditor(draftData) {
+            console.log("Populating editor with data:", draftData);
+            // Simple fields
+            document.getElementById('chiefComplaints').value = draftData.chief_complaints || '';
+            document.getElementById('clinicalFindings').value = draftData.clinical_findings || '';
+            document.getElementById('internalNotes').value = draftData.internal_notes || '';
+            document.getElementById('diagnosis').value = draftData.diagnosis || '';
+            document.getElementById('proceduresConducted').value = draftData.procedures_conducted || '';
+            document.getElementById('investigations').value = draftData.investigations || '';
+            document.getElementById('adviceGiven').value = draftData.advice_given || '';
+
+             // Clear existing prescription rows before adding new ones
+             prescriptionTable.querySelectorAll('.prescription-row').forEach(row => row.remove());
+
+            // Prescription details (array) - Populate hidden fields directly
+            hiddenPrescriptionFieldsContainer.innerHTML = ''; // Clear previous hidden fields
+             if (draftData.prescription_details && Array.isArray(draftData.prescription_details)) {
+                 draftData.prescription_details.forEach(med => {
+                     addHiddenPrescriptionInputs(med);
+                 });
+             } else if (draftData.prescription_details) {
+                 console.warn("Prescription details received but not in expected array format:", draftData.prescription_details);
+                 addHiddenPrescriptionInputs({ instructions: draftData.prescription_details });
+             } else {
+                  // Optionally add one set of empty hidden fields if needed, or leave empty
+                 // addHiddenPrescriptionInputs({});
+             }
+
+
+            // Follow-up date
+            if (draftData.follow_up_date) {
+                followUpDateInput.value = draftData.follow_up_date;
+                followUpDateInput.disabled = false;
+                enableFollowUpCheckbox.checked = true;
+            } else {
+                followUpDateInput.value = '';
+                followUpDateInput.disabled = true;
+                enableFollowUpCheckbox.checked = false;
+            }
+            prescriptionEditor.style.display = 'block'; // Ensure editor is visible
+        }
+
+        // --- Add Prescription Row (MODAL VERSION) ---
+        function addModalPrescriptionRow(medData = {}) {
+             const row = document.createElement('div');
+             row.classList.add('prescription-row');
+             // Use data-col attributes for styling consistency
+             row.innerHTML = `
+                 <div data-col="med-name"><input type="text" name="modal_medicine_name" placeholder="Medicine Name" value="${medData.medicine_name || ''}"></div>
+                 <div data-col="dosage"><input type="text" name="modal_dosage" placeholder="Dosage (e.g., 500mg)" value="${medData.dosage || ''}"></div>
+                 <div data-col="frequency"><input type="text" name="modal_frequency" placeholder="Frequency (e.g., 1-0-1)" value="${medData.frequency || ''}"></div>
+                 <div data-col="duration"><input type="text" name="modal_duration" placeholder="Duration (e.g., 5 days)" value="${medData.duration || ''}"></div>
+                 <div data-col="instructions"><textarea name="modal_instructions" placeholder="Instructions (e.g., After food)" rows="1">${medData.instructions || ''}</textarea></div>
+                 <div data-col="action"><button type="button" class="remove-medicine-btn" title="Remove Medicine"><i class="bi bi-trash"></i></button></div>
+             `;
+             modalPrescriptionTable.appendChild(row); // Append to modal table body
+         }
+
+        // --- Add Hidden Prescription Inputs to Main Form ---
+        function addHiddenPrescriptionInputs(medData) {
+             const fields = ['medicine_name', 'dosage', 'frequency', 'duration', 'instructions'];
+             fields.forEach(field => {
+                 const input = document.createElement('input');
+                 input.type = 'hidden';
+                 input.name = `${field}[]`; // Use array notation for backend
+                 input.value = medData[field] || '';
+                 hiddenPrescriptionFieldsContainer.appendChild(input);
+             });
+         }
+
+        // --- Gather Editor Data ---
+         function gatherEditorData() {
+             const formData = new FormData(consultationForm);
+             const data = {};
+
+             // Simple fields
+             data.chief_complaints = formData.get('chief_complaints');
+             data.clinical_findings = formData.get('clinical_findings');
+             data.internal_notes = formData.get('internal_notes');
+             data.diagnosis = formData.get('diagnosis');
+             data.procedures_conducted = formData.get('procedures_conducted');
+             data.investigations = formData.get('investigations');
+             data.advice_given = formData.get('advice_given');
+             data.follow_up_date = enableFollowUpCheckbox.checked ? formData.get('follow_up_date') : null;
+             data.raw_transcript = accumulatedTranscript; // Send transcript with the correct key
+             data.patient_id = patientId; // Include patient ID
+
+             // Prescription details - Read from hidden fields
+             data.prescription_details = [];
+             const medicineNames = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="medicine_name[]"]')).map(input => input.value);
+             const dosages = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="dosage[]"]')).map(input => input.value);
+             const frequencies = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="frequency[]"]')).map(input => input.value);
+             const durations = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="duration[]"]')).map(input => input.value);
+             const instructions = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="instructions[]"]')).map(input => input.value);
+
+             for (let i = 0; i < medicineNames.length; i++) {
+                 // Only add if at least medicine name is present (remains same logic)
+                 data.prescription_details.push({
+                     medicine_name: medicineNames[i],
+                     dosage: dosages[i],
+                     frequency: frequencies[i],
+                     duration: durations[i],
+                     instructions: instructions[i]
+                 });
+             }
+             console.log("Gathered data:", data);
+             return data;
+         }
+
+        // --- Event Listener for Start Button ---
+        startButton.addEventListener('click', async () => {
+            if (isRecording || isProcessing) return; 
+
+            const selectedDeviceId = audioSourceSelect.value;
+            const selectedDeviceLabel = audioSourceSelect.options[audioSourceSelect.selectedIndex].text;
+            console.log(`Start button clicked. Selected deviceId: ${selectedDeviceId || 'default'}, Label: ${selectedDeviceLabel}`);
+
+             // Clear previous statuses/errors
+             liveStatus.textContent = '';
+             liveStatus.style.color = 'var(--primary-color)'; // Reset color
+             liveErrorDisplay.textContent = '';
+             errorDisplay.textContent = '';
+             saveStatus.textContent = '';
+             prescriptionEditor.style.display = 'none'; // Hide editor
+             aiDraftContainer.style.display = 'none'; // Hide draft area
+
+            isRecording = true; 
+            updateButtonStates(); 
+            liveStatus.textContent = "Initializing...";
+            liveStatus.style.display = 'block';
 
             try {
-                liveStream = await navigator.mediaDevices.getUserMedia(constraints);
-                console.log("Live Mic Stream obtained.");
-
-                // Reset transcript areas
-                liveTranscriptArea.textContent = '(Listening...)';
-                aiDraftArea.value = '';
-                accumulatedFinalTranscript = ""; // Reset accumulator
-                liveErrorDisplay.textContent = '';
-                confirmButton.disabled = true;
-                downloadButton.style.display = 'none';
-
-                // --- Setup Web Audio API ---
-                if (!audioCtx) {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                } else if (audioCtx.state === 'suspended') {
-                    await audioCtx.resume();
-                }
-                console.log(`AudioContext sample rate: ${audioCtx.sampleRate}`);
-                if (audioCtx.sampleRate !== 16000 && audioCtx.sampleRate !== 48000) {
-                    // Adjusted warning for common rates
-                    console.warn(`Warning: AudioContext using ${audioCtx.sampleRate} Hz. Backend expects ${STREAMING_RATE} Hz. STT might fail.`);
-                }
-
-                analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 256;
-                bufferLength = analyser.frequencyBinCount;
-                dataArray = new Uint8Array(bufferLength);
-                source = audioCtx.createMediaStreamSource(liveStream);
-                scriptNode = audioCtx.createScriptProcessor(SCRIPT_PROCESSOR_BUFFER_SIZE, 1, 1);
-
-                scriptNode.onaudioprocess = (audioProcessingEvent) => {
-                    const inputBuffer = audioProcessingEvent.inputBuffer;
-                    const channelData = inputBuffer.getChannelData(0);
-                    const pcm16Buffer = convertFloat32ToInt16(channelData);
-                    if (liveWebSocket && liveWebSocket.readyState === WebSocket.OPEN) {
-                        liveWebSocket.send(pcm16Buffer);
-                    }
+                console.log("Requesting microphone access...");
+                const constraints = {
+                    audio: {
+                        deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+                        sampleRate: TARGET_SAMPLE_RATE, 
+                        echoCancellation: true, 
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
                 };
-                source.connect(analyser);
-                source.connect(scriptNode);
-                // --- End Web Audio Setup ---
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log("Microphone access granted.");
+                activeMicDisplay.textContent = `Using: ${selectedDeviceLabel}`; // Show active mic
 
-                // Setup WebSocket connection
-                const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-                const wsUrl = `${wsProtocol}${window.location.host}/live_transcript`;
-                liveWebSocket = new WebSocket(wsUrl);
-                liveWebSocket.binaryType = 'arraybuffer';
-
-                liveWebSocket.onopen = () => {
-                    console.log('WebSocket connected.');
-                    liveStatus.textContent = `Recording... (Mic: ${audioSourceSelect.options[audioSourceSelect.selectedIndex]?.text || 'Default'})`;
-                    liveStatus.style.display = 'block';
-                    startRecordingButton.disabled = true;
-                    stopAndProcessButton.disabled = false;
-                    visualize(); // Start visualization
-                };
-
-                liveWebSocket.onmessage = (event) => {
-                    console.log("Raw WS Message Received:", event.data);
-                    const message = event.data;
-                    const liveArea = document.getElementById('liveTranscriptArea');
-                    const liveErrDisp = document.getElementById('liveErrorDisplay');
-                    if (!liveArea || !liveErrDisp) return;
-
-                    // Display interim results slightly differently if desired
-                    if (message.startsWith('INTERIM:')) {
-                        const interimTranscript = message.substring(8);
-                        // Simple display: overwrite content with latest interim
-                        liveArea.textContent = interimTranscript + "...";
-                        liveErrDisp.textContent = '';
-                    } else if (message.startsWith('FINAL:')) {
-                        const finalTranscript = message.substring(6).trim();
-                        if (finalTranscript) { // Only add non-empty final transcripts
-                            accumulatedFinalTranscript += finalTranscript + "\n"; // Append with newline
-                        }
-                        liveArea.textContent = accumulatedFinalTranscript; // Show accumulated text
-                        liveArea.scrollTop = liveArea.scrollHeight; // Scroll to bottom
-                        liveErrDisp.textContent = '';
-                    } else if (message.startsWith('ERROR:')) {
-                        liveErrDisp.textContent = `Live Error: ${message.substring(6)}`;
-                        // Consider stopping on error? stopRecordingAndProcess();
-                    } else if (message.startsWith('STATUS:')) {
-                        liveErrDisp.textContent = `Status: ${message.substring(7)}`;
-                    }
-                };
-
-                liveWebSocket.onerror = (error) => {
-                    console.error('WebSocket Error:', error);
-                    liveErrorDisplay.textContent = 'WebSocket connection error.';
-                    stopRecordingAndProcess(true); // Pass error flag
-                };
-
-                liveWebSocket.onclose = (event) => {
-                    console.log('WebSocket closed:', event.code, event.reason);
-                    // Don't reset status here if processing is intended
-                    if (startRecordingButton.disabled) { // Only update status if we were recording
-                       // liveStatus.textContent = `Connection closed (${event.code}). Processing...`;
-                    } else {
-                         liveStatus.textContent = 'Recording stopped.';
-                    }
-                    // Ensure cleanup happens if closed unexpectedly
-                    if (scriptNode) { // Check if scriptNode still exists (means stop wasn't called cleanly)
-                        stopRecordingAndProcess(true); // Trigger cleanup
-                    }
-                };
+                setupAudioProcessingNodes(localStream);
+                console.log("Setting up WebSocket connection...");
+                await setupWebSocket(); 
+                console.log("Start sequence complete. Recording active.");
+                liveStatus.textContent = "Recording...";
+                liveStatus.style.color = 'var(--danger-color)'; // Red for recording
 
             } catch (err) {
-                console.error('Error starting recording:', err);
-                liveErrorDisplay.textContent = `Mic/Audio Error: ${err.message}`;
+                console.error("Error during recording start sequence:", err);
+                liveErrorDisplay.textContent = `Error starting recording: ${err.name} - ${err.message}. Check mic permissions/device.`;
+                // alert(`Error starting recording: ${err.name} - ${err.message}. Please check microphone permissions and selected device.`);
+                stopAudioProcessing(); 
+                isRecording = false; 
+                updateButtonStates();
                 liveStatus.style.display = 'none';
             }
         });
 
-        // Renamed Function + Added Processing Call
-        stopAndProcessButton.addEventListener('click', () => stopRecordingAndProcess(false));
+        // --- Event Listener for Stop Button ---
+        stopButton.addEventListener('click', () => {
+            console.log("Stop & Process button clicked.");
+            if (!isRecording) return;
 
-        async function stopRecordingAndProcess(isCalledOnError = false) {
-            console.log("Stopping recording and processing...");
-            stopAndProcessButton.disabled = true;
-
-            // Stop Web Audio processing & visualization
-            if (scriptNode) {
-                 try { scriptNode.disconnect(); scriptNode = null; } catch(e) {}
-            }
-            if (liveStream) {
-                liveStream.getTracks().forEach(track => track.stop());
-                liveStream = null;
-            }
-            if (drawVisual) {
-                cancelAnimationFrame(drawVisual);
-                drawVisual = null;
-                canvasCtx.fillStyle = '#333';
-                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-             if (source) { try { source.disconnect(); source = null; } catch(e) {} }
-             if (analyser) { try { analyser.disconnect(); analyser = null; } catch(e) {} }
-
-            // Close WebSocket
-            if (liveWebSocket && (liveWebSocket.readyState === WebSocket.OPEN || liveWebSocket.readyState === WebSocket.CONNECTING)) {
-                liveWebSocket.close(1000, "Client finished recording");
+            // 1. Close WebSocket (if open)
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                 console.log("Closing WebSocket connection...");
+                 socket.close();
+            } else {
+                 console.log("WebSocket not open or already closed.");
+                 if (adrCheckIntervalId) { // Clear interval if socket wasn't open
+                    clearInterval(adrCheckIntervalId);
+                    adrCheckIntervalId = null;
+                    console.log("Cleared ADR interval manually on stop.");
+                 }
             }
 
-            startRecordingButton.disabled = false;
-            liveStatus.textContent = isCalledOnError ? 'Recording stopped due to error.' : 'Recording stopped. Processing transcript...';
-            activeMicDisplay.textContent = '';
+            // 2. Stop Audio Processing
+            stopAudioProcessing();
 
-            if (isCalledOnError) {
-                console.log("Skipping Gemini processing due to error during recording.");
-                return; // Don't process if stopped due to error
-            }
+            // 3. Update State & UI
+            isRecording = false;
+            liveStatus.textContent = "Recording stopped. Processing...";
+            liveStatus.style.color = 'var(--primary-color)';
+            updateButtonStates(); // Disable start/stop, keep confirm/download disabled
 
-            // --- Process Accumulated Transcript --- 
-            const finalTranscriptText = accumulatedFinalTranscript.trim();
-            console.log(`Final Accumulated Transcript (${finalTranscriptText.length} chars):\n${finalTranscriptText}`);
+            // 4. Trigger Transcript Processing
+            processTranscript(); // Call the processing function
+        });
 
-            if (!finalTranscriptText) {
-                liveErrorDisplay.textContent = "No final transcript captured to process.";
-                processingIndicator.style.display = 'none';
+        // --- Event Listener for Confirm Button ---
+        confirmButton.addEventListener('click', async () => {
+            console.log("Save Consultation button clicked.");
+             if (isProcessing || isRecording) return; // Don't save while processing or recording
+
+             const dataToSave = gatherEditorData();
+
+            if (!dataToSave.patient_id) {
+                errorDisplay.textContent = "Patient ID is missing. Cannot save.";
                 return;
             }
 
-            processingIndicator.style.display = 'block'; // Show processing indicator
-            liveErrorDisplay.textContent = '';
-            // Reset UI elements before fetch
-            prescriptionEditor.style.display = 'none';
-            aiDraftContainer.style.display = 'none';
-            confirmButton.disabled = true;
-
-            try {
-                const response = await fetch('/process_transcript_text', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ transcript_text: finalTranscriptText })
-                });
-
-                processingIndicator.style.display = 'none';
-                const data = await response.json(); // data is { ai_draft: { ... structured object ... } } or { ai_draft: "Error string" }
-
-                if (!response.ok) {
-                    // Try to get error from ai_draft if it's a string, or use generic message
-                    const errorMsg = (typeof data.ai_draft === 'string') ? data.ai_draft : `HTTP error! status: ${response.status}`;
-                    throw new Error(errorMsg);
-                }
-
-                // --- Store original text and Call populateEditor --- 
-                // Store raw text in hidden input and display in readonly textarea
-                const originalText = data.original_gemini_text || "(Original AI text not received)";
-                originalAiSummaryInput.value = originalText; 
-                aiDraftArea.value = originalText; 
-
-                populateEditor(data.ai_draft); // Pass structured object to editor populator
-                
-                liveStatus.textContent = 'Transcript processed. Review details below.';
-                
-            } catch (error) {
-                console.error('Error processing transcript text:', error);
-                liveErrorDisplay.textContent = `AI Processing Error: ${error.message}`;
-                processingIndicator.style.display = 'none';
-                confirmButton.disabled = true;
-                prescriptionEditor.style.display = 'none';
-                // Show error in raw text area if available
-                aiDraftArea.value = error.message;
-                aiDraftContainer.style.display = 'block'; 
+            // Optional: Basic validation (e.g., check if chief complaints or diagnosis is filled)
+            if (!dataToSave.chief_complaints?.trim() && !dataToSave.diagnosis?.trim()) {
+                 if (!confirm("No chief complaint or diagnosis entered. Save anyway?")) {
+                     return;
+                 }
             }
-            // --- End Processing --- 
-        }
 
-        // Helper function (Unchanged)
-        function convertFloat32ToInt16(buffer) {
-            let l = buffer.length;
-            let buf = new Int16Array(l);
-            while (l--) {
-                buf[l] = Math.min(1, buffer[l]) * 0x7FFF; // Clamp to [-1, 1] then scale to [-32767, 32767]
-            }
-            return buf.buffer; // Return the underlying ArrayBuffer
-        }
-
-        // Visualization Function (Unchanged)
-        function visualize() {
-            if (!analyser) return;
-            analyser.getByteFrequencyData(dataArray);
-            canvasCtx.fillStyle = '#333';
-            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / bufferLength) * 1.5;
-            let barHeight;
-            let x = 0;
-            for (let i = 0; i < bufferLength; i++) {
-                barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = `rgb(50, ${barHeight + 100}, 50)`;
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-            drawVisual = requestAnimationFrame(visualize);
-        }
-
-        // Save and Download Functions (Update save to use accumulated transcript)
-         confirmButton.addEventListener('click', async () => {
-            console.log('Confirm button clicked.');
-            confirmButton.disabled = true;
-            confirmButton.textContent = 'Saving...';
-            liveErrorDisplay.textContent = ''; // Clear previous errors
-
-             // Gather data from the form fields
-            const consultationData = {
-                patient_id: patientId,
-                doctor_id: doctorId,
-                raw_transcript: accumulatedFinalTranscript,
-                ai_summary: originalAiSummaryInput.value, // Send original Gemini text from hidden input
-                chief_complaints: chiefComplaintsInput.value.trim(),
-                clinical_findings: clinicalFindingsInput.value.trim(),
-                internal_notes: internalNotesInput.value.trim(),
-                diagnosis: diagnosisInput.value.trim(),
-                procedures_conducted: proceduresConductedInput.value.trim(),
-                investigations: investigationsInput.value.trim(),
-                advice_given: adviceGivenInput.value.trim(),
-                // Only include follow_up_date if checkbox is checked and date is not empty
-                follow_up_date: (enableFollowUpDateCheckbox.checked && followUpDateInput.value) ? followUpDateInput.value : null,
-                prescription_details: []
-            };
-
-             // Gather prescription details
-            const prescriptionRows = prescriptionTable.querySelectorAll('.prescription-row');
-            prescriptionRows.forEach(row => {
-                const medicineInput = row.querySelector('input[name="medicine_name"]');
-                const dosageInput = row.querySelector('input[name="dosage"]');
-                const durationInput = row.querySelector('input[name="duration"]');
-
-                if (medicineInput && dosageInput && durationInput && medicineInput.value.trim()) {
-                    consultationData.prescription_details.push({
-                        medicine: medicineInput.value.trim(),
-                        dosage: dosageInput.value.trim(),
-                        duration: durationInput.value.trim()
-                    });
-                }
-            });
-
-             console.log('Sending data to /save_consultation:', consultationData);
+            confirmButton.disabled = true; // Disable while saving
+            downloadButton.disabled = true;
+            saveStatus.textContent = "Saving...";
+            errorDisplay.textContent = '';
 
             try {
                 const response = await fetch('/save_consultation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(consultationData)
+                    body: JSON.stringify(dataToSave)
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({})); // Try to get JSON error, fallback to empty obj
-                    throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData.error || 'Unknown server error'}`);
+                     const errorData = await response.json();
+                     throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
                 }
 
                 const result = await response.json();
-                console.log('Save Response:', result);
-
-                if (result.success && result.consultation_id) {
-                    currentConsultationId = result.consultation_id;
-                    liveErrorDisplay.textContent = `Consultation ${currentConsultationId} saved successfully!`;
-                    confirmButton.textContent = 'Saved!';
-                    downloadButton.style.display = 'inline-block'; // Show download button
-                    // Optionally disable editing fields after saving
-                    // disableEditorFields();
-                } else {
-                    throw new Error(result.error || 'Failed to save consultation.');
-                }
+                console.log("Save successful:", result);
+                savedConsultationId = result.consultation_id; // Store the returned ID
+                saveStatus.textContent = "Consultation saved successfully!";
+                 downloadButton.disabled = false; // Enable download only after successful save
+                 confirmButton.disabled = false; // Re-enable confirm (allow re-saving if needed)
 
             } catch (error) {
-                console.error('Error saving consultation:', error);
-                liveErrorDisplay.textContent = `Error saving: ${error.message}`;
-                confirmButton.disabled = false; // Re-enable button on error
-                confirmButton.textContent = 'Review/Edit & Save Consultation';
+                 console.error("Error saving consultation:", error);
+                 errorDisplay.textContent = `Error saving: ${error.message}`;
+                 saveStatus.textContent = "";
+                 confirmButton.disabled = false; // Re-enable on error
+                 downloadButton.disabled = true; // Keep download disabled on error
             }
         });
-
+        
+        // --- Event Listener for Download Button ---
         downloadButton.addEventListener('click', () => {
-            if (currentConsultationId) {
-                window.location.href = `/download_pdf/${currentConsultationId}`;
-            } else {
-                liveErrorDisplay.textContent = 'Cannot download PDF. Consultation not saved yet.';
-            }
+            if (!savedConsultationId) {
+                 errorDisplay.textContent = "Consultation must be saved before downloading PDF.";
+                 console.warn("Download clicked but no savedConsultationId found.");
+                 return;
+             }
+             console.log(`Downloading PDF for consultation ID: ${savedConsultationId}`);
+             // Open the PDF in a new tab
+             window.open(`/download_pdf/${savedConsultationId}`, '_blank');
+         });
+
+        // --- Event Listener for Add Medicine Button (Original - Now Hidden) ---
+        // addMedicineButton.addEventListener('click', () => {
+        //     addPrescriptionRow(); // This function is now unused directly
+        // });
+
+        // --- Event Listener for Follow-up Checkbox ---
+        enableFollowUpCheckbox.addEventListener('change', function() {
+             followUpDateInput.disabled = !this.checked;
+             if (!this.checked) {
+                 followUpDateInput.value = ''; // Clear date if disabled
+             }
+         });
+
+
+        // --- Initial State Setup ---
+        document.addEventListener('DOMContentLoaded', () => {
+            populateAudioSources();
+            updateButtonStates(); // Set initial button states correctly
+            prescriptionEditor.style.display = 'none'; // Hide editor initially
+            aiDraftContainer.style.display = 'none'; // Hide AI draft initially
+            adrAlertBox.style.display = 'none'; // Ensure ADR box is hidden initially
+            liveStatus.style.display = 'none'; // Hide status initially
+             processingIndicator.style.display = 'none'; // Hide processing indicator
         });
 
-        // --- New Editor Helper Functions ---
+        // --- Helper to Update Button States ---
+        function updateButtonStates() {
+            // Recording controls
+            startButton.disabled = isRecording || isProcessing;
+            stopButton.disabled = !isRecording || isProcessing;
+            audioSourceSelect.disabled = isRecording || isProcessing;
 
-        // UPDATED: Populates editor using the structured object received from the backend.
-        function populateEditor(structuredDraft) {
-            console.log("Populating editor with structured draft:", structuredDraft);
+            // Action controls (depend on state after recording/processing)
+            const editorVisible = prescriptionEditor.style.display === 'block';
+            confirmButton.disabled = isRecording || isProcessing || !editorVisible;
+            downloadButton.disabled = isRecording || isProcessing || !savedConsultationId; // Only enable if saved
 
-            // Check if we received the structured object or an error string
-            if (typeof structuredDraft === 'string') {
-                console.error("Received error string instead of structured draft:", structuredDraft);
-                // Display the error and don't populate/show the editor
-                liveErrorDisplay.textContent = `Error populating editor: ${structuredDraft}`;
-                prescriptionEditor.style.display = 'none';
-                aiDraftContainer.style.display = 'block'; // Show container with error
-                aiDraftArea.value = structuredDraft; // Show error in text area
-                confirmButton.disabled = true;
-                return;
+            // Disable edit prescription button while recording/processing
+            editPrescriptionBtn.disabled = isRecording || isProcessing || !editorVisible;
+
+            console.log(`Button states updated: isRecording=${isRecording}, isProcessing=${isProcessing}, editorVisible=${editorVisible}, savedConsultationId=${savedConsultationId}`);
+            console.log(`Confirm enabled: ${!confirmButton.disabled}, Download enabled: ${!downloadButton.disabled}`);
+        }
+
+
+        // --- Visualization Function ---
+        function visualize(stream) {
+            if (!audioContext) return; 
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const sourceForVisualizer = audioContext.createMediaStreamSource(stream);
+            sourceForVisualizer.connect(analyser);
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            function draw() {
+                if (!isRecording) { 
+                     canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                     canvasCtx.fillStyle = 'rgb(230, 230, 230)'; // Match bg
+                     canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+                     // Optionally write "Stopped" or leave blank
+                     // canvasCtx.fillStyle = 'rgb(100, 100, 100)';
+                     // canvasCtx.textAlign = 'center';
+                     // canvasCtx.fillText("Stopped", canvas.width/2, canvas.height/2);
+                     return;
+                }
+                requestAnimationFrame(draw);
+                analyser.getByteTimeDomainData(dataArray);
+                canvasCtx.fillStyle = 'rgb(230, 230, 230)'; 
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeStyle = 'rgb(0, 123, 255)'; 
+                canvasCtx.beginPath();
+                let sliceWidth = canvas.width * 1.0 / bufferLength;
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    let v = dataArray[i] / 128.0; 
+                    let y = v * canvas.height / 2;
+                    if (i === 0) canvasCtx.moveTo(x, y);
+                    else canvasCtx.lineTo(x, y);
+                    x += sliceWidth;
+                }
+                canvasCtx.lineTo(canvas.width, canvas.height / 2);
+                canvasCtx.stroke();
             }
+            draw();
+            console.log("Audio visualization started.");
+        }
 
-            // Clear previous values and errors
-            consultationForm.reset();
-            prescriptionTable.innerHTML = '';
-            liveErrorDisplay.textContent = '';
-            followUpDateInput.disabled = true; // Ensure date is disabled initially
-            enableFollowUpDateCheckbox.checked = false; // Ensure checkbox is unchecked initially
+        // --- Populate Audio Sources ---
+        async function populateAudioSources() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                    console.warn("enumerateDevices() not supported.");
+                    audioSourceSelect.innerHTML = '<option value="">N/A</option>';
+                    audioSourceSelect.disabled = true; return;
+                }
+                 await navigator.mediaDevices.getUserMedia({ audio: true }); // Request permission first
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
+                audioSourceSelect.innerHTML = ''; 
+                if (audioInputDevices.length === 0) {
+                     audioSourceSelect.innerHTML = '<option value="">No microphone found</option>';
+                     audioSourceSelect.disabled = true;
+                } else {
+                    let defaultSelected = false;
+                    audioInputDevices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        option.text = device.label || `Microphone ${index + 1}`;
+                        // Try to pre-select the actual default device if label is available
+                        if (device.deviceId === 'default' || device.label.toLowerCase().includes('default')) {
+                            option.selected = true;
+                            defaultSelected = true;
+                        }
+                        audioSourceSelect.appendChild(option);
+                    });
+                    // If no explicit default found, select the first one
+                    if (!defaultSelected && audioSourceSelect.options.length > 0) {
+                        audioSourceSelect.options[0].selected = true;
+                    }
+                     audioSourceSelect.disabled = false;
+                }
+            } catch (err) {
+                 console.error("Error populating audio sources:", err);
+                 audioSourceSelect.innerHTML = `<option value="">Error listing devices</option>`;
+                 audioSourceSelect.disabled = true;
+                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                     liveErrorDisplay.textContent = "Mic access denied. Allow in browser settings.";
+                     // alert("Microphone access was denied. Please allow microphone access in your browser settings to use the recording feature.");
+                 } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError'){
+                     liveErrorDisplay.textContent = "No microphone devices found.";
+                      // alert("No microphone devices were found. Please ensure a microphone is connected and enabled.");
+                 } else {
+                     liveErrorDisplay.textContent = "Error listing microphones.";
+                 }
+            }
+        }
 
-            // Populate fields directly from the structured object
-            chiefComplaintsInput.value = structuredDraft.chief_complaints || '';
-            clinicalFindingsInput.value = structuredDraft.clinical_findings || '';
-            internalNotesInput.value = structuredDraft.internal_notes || '';
-            diagnosisInput.value = structuredDraft.diagnosis || '';
-            proceduresConductedInput.value = structuredDraft.procedures_conducted || '';
-            investigationsInput.value = structuredDraft.investigations || '';
-            adviceGivenInput.value = structuredDraft.advice_given || '';
-            
-            // Populate follow-up date and enable checkbox if date exists
-            if (structuredDraft.follow_up_date) {
-                followUpDateInput.value = structuredDraft.follow_up_date;
-                enableFollowUpDateCheckbox.checked = true;
-                followUpDateInput.disabled = false;
+        // --- ADR Check Functions ---
+        function triggerADRCheck() {
+             if (accumulatedTranscript.length > lastTranscriptLengthForADR + 50) { 
+                 console.log("Triggering ADR check...");
+                 lastTranscriptLengthForADR = accumulatedTranscript.length; 
+                 fetch('/check_adr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transcript: accumulatedTranscript }),
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("ADR Check Response:", data);
+                    updateADRAlerts(data.validated_adrs || []);
+                })
+                .catch(error => console.error('Error checking for ADRs:', error) );
             } else {
-                 followUpDateInput.value = '';
-                 enableFollowUpDateCheckbox.checked = false;
-                 followUpDateInput.disabled = true;
+                 // console.log("Skipping ADR check, not enough new transcript.");
             }
-            
-            // Populate prescription table
-            if (structuredDraft.prescription_details && structuredDraft.prescription_details.length > 0) {
-                structuredDraft.prescription_details.forEach(item => {
-                    addPrescriptionRow(item.medicine, item.dosage, item.duration);
+        }
+        function updateADRAlerts(adrs) {
+            adrList.innerHTML = ''; 
+            if (adrs && adrs.length > 0) {
+                adrs.forEach(adr => {
+                    const listItem = document.createElement('li');
+                    listItem.innerHTML = `<span class="drug-name">${adr.drug}:</span> ${adr.symptom}`;
+                    adrList.appendChild(listItem);
                 });
+                adrAlertBox.style.display = 'block'; 
             } else {
-                // Add one empty row if no prescriptions were parsed
-                addPrescriptionRow();
-            }
-
-            // Display the editor and the raw draft area (which now has original text)
-            prescriptionEditor.style.display = 'block';
-            aiDraftContainer.style.display = 'block';
-
-            // Re-enable confirm button
-            confirmButton.disabled = false;
-            confirmButton.textContent = 'Confirm & Save Consultation';
-        }
-
-        // UPDATED: Accepts optional values to pre-fill the row
-        function addPrescriptionRow(medicine = '', dosage = '', duration = '') {
-            const row = document.createElement('div');
-            row.classList.add('prescription-row');
-            // Use value attribute to set initial values
-            row.innerHTML = `
-                <input type="text" name="medicine_name" placeholder="Medicine Name" value="${escapeHtml(medicine)}">
-                <input type="text" name="dosage" placeholder="Dosage" value="${escapeHtml(dosage)}">
-                <input type="text" name="duration" placeholder="Duration/Total" value="${escapeHtml(duration)}">
-                <button type="button" class="remove-medicine-btn">X</button>
-            `;
-            prescriptionTable.appendChild(row);
-        }
-
-        function removePrescriptionRow(buttonElement) {
-            const row = buttonElement.closest('.prescription-row');
-            if (row) {
-                row.remove();
+                adrAlertBox.style.display = 'none'; 
             }
         }
 
-        // Helper to escape HTML special characters for setting input values safely
-        function escapeHtml(unsafe) {
-            if (typeof unsafe !== 'string') return '';
-            return unsafe
-                 .replace(/&/g, "&amp;")
-                 .replace(/</g, "&lt;")
-                 .replace(/>/g, "&gt;")
-                 .replace(/"/g, "&quot;")
-                 .replace(/'/g, "&#039;");
-         }
+        // --- Modal Event Listeners ---
 
-         // Optional: Disable form fields after successful save
-        // function disableEditorFields() {
-        //     const elements = consultationForm.elements;
-        //     for (let i = 0; i < elements.length; i++) {
-        //         elements[i].disabled = true;
-        //     }
-        //     addMedicineButton.disabled = true;
-        //     const removeButtons = prescriptionTable.querySelectorAll('.remove-medicine-btn');
-        //     removeButtons.forEach(btn => btn.disabled = true);
-        // }
+        // Open Modal
+        editPrescriptionBtn.addEventListener('click', () => {
+             console.log("Opening prescription modal...");
+             // 1. Clear current rows in modal table
+             modalPrescriptionTable.querySelectorAll('.prescription-row').forEach(row => row.remove());
 
+             // 2. Read data from hidden inputs in main form
+             const medicineNames = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="medicine_name[]"]')).map(input => input.value);
+             const dosages = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="dosage[]"]')).map(input => input.value);
+             const frequencies = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="frequency[]"]')).map(input => input.value);
+             const durations = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="duration[]"]')).map(input => input.value);
+             const instructions = Array.from(hiddenPrescriptionFieldsContainer.querySelectorAll('input[name="instructions[]"]')).map(input => input.value);
+
+             // 3. Populate modal table
+             if (medicineNames.length > 0) {
+                 for (let i = 0; i < medicineNames.length; i++) {
+                     addModalPrescriptionRow({
+                         medicine_name: medicineNames[i],
+                         dosage: dosages[i],
+                         frequency: frequencies[i],
+                         duration: durations[i],
+                         instructions: instructions[i]
+                     });
+                 }
+             } else {
+                 addModalPrescriptionRow(); // Add one empty row if none exist
+             }
+
+             // 4. Show modal
+             prescriptionModal.style.display = 'flex'; // Use flex for centering overlay
+         });
+
+        // Close Modal Button
+        modalCloseBtn.addEventListener('click', () => {
+             prescriptionModal.style.display = 'none';
+         });
+
+        // Cancel Modal Button
+        modalCancelButton.addEventListener('click', () => {
+             prescriptionModal.style.display = 'none';
+         });
+
+        // Close Modal on Overlay Click
+         prescriptionModal.addEventListener('click', (event) => {
+             if (event.target === prescriptionModal) { // Check if click is on the overlay itself
+                 prescriptionModal.style.display = 'none';
+             }
+         });
+
+
+        // Add Medicine Button (Inside Modal)
+        modalAddMedicineButton.addEventListener('click', () => {
+            addModalPrescriptionRow(); // Add empty row to modal table
+        });
+
+        // Remove Medicine Button (Inside Modal - Event Delegation)
+        modalPrescriptionTable.addEventListener('click', (event) => {
+             if (event.target.closest('.remove-medicine-btn')) {
+                 event.target.closest('.prescription-row').remove();
+             }
+         });
+
+
+        // Save Changes Button (Inside Modal)
+        modalSaveChangesButton.addEventListener('click', () => {
+             console.log("Saving changes from prescription modal...");
+             // 1. Clear existing hidden fields in the main form
+             hiddenPrescriptionFieldsContainer.innerHTML = '';
+
+             // 2. Iterate through rows in the modal table
+             const modalRows = modalPrescriptionTable.querySelectorAll('.prescription-row');
+             modalRows.forEach(row => {
+                 const medData = {
+                     medicine_name: row.querySelector('input[name="modal_medicine_name"]').value,
+                     dosage: row.querySelector('input[name="modal_dosage"]').value,
+                     frequency: row.querySelector('input[name="modal_frequency"]').value,
+                     duration: row.querySelector('input[name="modal_duration"]').value,
+                     instructions: row.querySelector('textarea[name="modal_instructions"]').value
+                 };
+                 // Only add if medicine name is present
+                 if (medData.medicine_name?.trim()) {
+                     addHiddenPrescriptionInputs(medData); // Add corresponding hidden fields to main form
+                 }
+             });
+             console.log("Hidden fields updated:", hiddenPrescriptionFieldsContainer.innerHTML);
+             // 3. Hide the modal
+             prescriptionModal.style.display = 'none';
+         });
 
     </script>
 </body>

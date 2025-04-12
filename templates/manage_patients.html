@@ -135,14 +135,22 @@
                             {% for p in patients %}
                             <tr>
                                 <td>{{ p.id }}</td>
-                                <td>{{ p.name }}</td>
-                                <td>{{ p.dob.strftime('%Y-%m-%d') if p.dob else 'N/A' }}</td>
+                                <td><a href="{{ url_for('patient_history', patient_id=p.id) }}" title="View Consultation History">{{ p.name }}</a></td>
+                                <td>{{ p.dob.strftime('%d-%b-%Y') if p.dob else 'N/A' }}</td>
                                 <td>{{ p.gender }}</td>
                                 <td>{{ p.address or 'N/A' }}</td>
                                 <td class="table-actions">
-                                    <a href="#" class="icon-link text-warning" title="Edit Patient (Not Implemented)"><i class="bi bi-pencil-square"></i></a>
-                                    <a href="#" class="icon-link text-danger" title="Delete Patient (Not Implemented)"><i class="bi bi-trash3"></i></a>
-                                    <a href="{{ url_for('consultation_page', patient_id=p.id) }}" class="icon-link text-primary" title="Start Consultation"><i class="bi bi-clipboard2-pulse"></i></a>
+                                    <a href="{{ url_for('edit_patient', patient_id=p.id) }}" class="icon-link text-warning" title="Edit Patient">
+                                        <i class="bi bi-pencil-square"></i>
+                                    </a>
+                                    <form action="{{ url_for('delete_patient', patient_id=p.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete patient {{ p.name }}? This cannot be undone if they have no consultations.');">
+                                        <button type="submit" class="icon-link text-danger" title="Delete Patient" style="background: none; border: none; padding: 0; cursor: pointer; vertical-align: middle;">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </form>
+                                    <a href="{{ url_for('consultation_page', patient_id=p.id) }}" class="icon-link text-primary" title="Start Consultation">
+                                        <i class="bi bi-clipboard2-pulse"></i>
+                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}

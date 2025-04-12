@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consultation History for {{ patient.name }} - Upai</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Assume shared CSS exists or embed styles -->
+    <style>
+        /* Add styles similar to manage_patients.html or use shared CSS */
+         :root { --primary-color: #0056b3; --secondary-color: #6c757d; --light-gray: #f8f9fa; --medium-gray: #e9ecef; --dark-gray: #dee2e6; --text-color: #343a40; --white: #ffffff; --success-color: #198754; --danger-color: #dc3545; --warning-color: #ffc107; --info-color: #0dcaf0; --border-radius: 6px; --box-shadow: 0 2px 5px rgba(0,0,0,0.07); --header-height: 60px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; background-color: var(--light-gray); margin: 0; }
+        .app-container { display: flex; flex-direction: column; min-height: 100vh; }
+        .header { background-color: var(--primary-color); color: var(--white); padding: 0 30px; height: var(--header-height); display: flex; justify-content: space-between; align-items: center; box-shadow: var(--box-shadow); position: sticky; top: 0; z-index: 1000; }
+        .header h1 { margin: 0; font-size: 1.7em; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+        .header a, .header a:visited { color: var(--white); text-decoration: none; font-size: 0.95em; padding: 8px 12px; border-radius: var(--border-radius); transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
+        .header a:hover { background-color: rgba(255, 255, 255, 0.15); }
+        .main-content { padding: 30px; width: 100%; box-sizing: border-box; margin: 0; flex-grow: 1; display: flex; justify-content: center; }
+        .content-wrapper { width: 100%; max-width: 900px; }
+        .card { background-color: var(--white); padding: 25px; border-radius: var(--border-radius); border: 1px solid var(--dark-gray); box-shadow: var(--box-shadow); margin-bottom: 20px;}
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--medium-gray); padding-bottom: 15px; }
+        .card-header h2 { margin: 0; color: var(--primary-color); font-size: 1.6em; display: inline-flex; align-items: center; gap: 10px; }
+        .card-body { padding-top: 10px; }
+        .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .table th, .table td { border: 1px solid var(--dark-gray); padding: 10px 12px; text-align: left; vertical-align: middle; }
+        .table thead th { background-color: var(--medium-gray); font-weight: 600; color: var(--text-color); }
+        .table tbody tr:nth-child(even) { background-color: var(--light-gray); }
+        .table tbody tr:hover { background-color: #e2e6ea; }
+        .table-actions { text-align: center; white-space: nowrap; width: 1%; }
+        .table-actions a, .table-actions button { margin: 0 4px; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; vertical-align: middle; }
+        .table-actions .icon-link { font-size: 1.2em; }
+        .button { padding: 8px 15px; border-radius: var(--border-radius); font-size: 0.95em; cursor: pointer; transition: background-color 0.2s ease, border-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; border: 1px solid transparent; }
+        .button.primary { background-color: var(--primary-color); color: var(--white); border-color: var(--primary-color); }
+        .button.primary:hover { background-color: #004085; border-color: #003773; }
+        .button.secondary { background-color: var(--secondary-color); color: var(--white); border-color: var(--secondary-color); }
+        .button.secondary:hover { background-color: #5a6268; border-color: #545b62; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+             <h1><i class="bi bi-person-badge"></i> {{ patient.name }} (ID: {{ patient.id }})</h1>
+             <div>
+                 <span style="margin-right: 20px;">Welcome, {{ session.user_name }}!</span>
+                 <a href="{{ url_for('index') }}" style="margin-right: 10px;"><i class="bi bi-house-door-fill"></i> Dashboard</a>
+                 <a href="{{ url_for('manage_users') }}" style="margin-right: 10px;"><i class="bi bi-people-fill"></i> Management Hub</a>
+                 <a href="{{ url_for('settings_page') }}" style="margin-right: 10px;"><i class="bi bi-gear-fill"></i> Settings</a>
+                 <a href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
+             </div>
+        </header>
+        <main class="main-content">
+            <div class="content-wrapper card">
+                <div class="card-header">
+                    <h2><i class="bi bi-clock-history"></i> Consultation History</h2>
+                    <a href="{{ url_for('manage_patients') }}" class="button secondary">
+                        <i class="bi bi-arrow-left-circle"></i> Back to Patients List
+                    </a>
+                </div>
+                 <div class="card-body">
+                    {% if consultations %}
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Consultation ID</th>
+                                <th>Date & Time</th>
+                                <th>Diagnosis (Summary)</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in consultations %}
+                            <tr>
+                                <td>{{ c.id }}</td>
+                                <td>{{ c.consultation_date.strftime('%d-%b-%Y %I:%M %p') if c.consultation_date else 'N/A' }}</td>
+                                <td>{{ c.diagnosis[:80] + '...' if c.diagnosis and c.diagnosis|length > 80 else c.diagnosis }}</td>
+                                <td class="table-actions">
+                                    <a href="{{ url_for('download_pdf', consultation_id=c.id) }}" class="icon-link" title="Download PDF">
+                                        <i class="bi bi-file-earmark-pdf-fill"></i>
+                                    </a>
+                                    <!-- Add Edit/Delete Consultation links here if needed later -->
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p>No past consultations found for this patient.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html> 

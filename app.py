@@ -1439,33 +1439,183 @@ def record_vitals():
 @role_required('doctor')
 def manage_users():
     """Renders the user management hub page (for doctors)."""
-    # No data fetching needed for the hub page itself
-    # patients = fetch_all("SELECT id, name FROM Patient ORDER BY name") # <<< Remove this line
-    return render_template('manage_users.html') # Pass only the template
+    return render_template('manage_users.html')
 
 @app.route('/manage_operators')
 @login_required
 @role_required('doctor')
 def manage_operators():
     """Displays a list of operators for management."""
-    # Fetch operators (users with role 'operator') from DB
     operators = fetch_all("SELECT id, name, email FROM User WHERE role = %s ORDER BY name", ('operator',))
-    # Render the specific template for managing operators
     return render_template('manage_operators.html', operators=operators)
-    # flash("Operator management page not yet implemented.", "info") # Remove placeholder
-    # return redirect(url_for('manage_users')) # Remove placeholder
 
+@app.route('/edit_operator/<int:operator_id>', methods=['GET', 'POST'])
+@login_required
+@role_required('doctor')
+def edit_operator(operator_id):
+    """Handles editing an operator's details."""
+    operator = fetch_one("SELECT id, name, email FROM User WHERE id = %s AND role = 'operator'", (operator_id,))
+    if not operator:
+        flash("Operator not found.", "danger")
+        return redirect(url_for('manage_operators'))
+
+    if request.method == 'POST':
+        name = request.form.get('name')
+        email = request.form.get('email')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        error = None
+
+        if not name or not email:
+            error = "Name and Email are required."
+        
+        if not error and email != operator['email']:
+            existing_user = fetch_one("SELECT id FROM User WHERE email = %s AND id != %s", (email, operator_id))
+            if existing_user:
+                error = f"Email '{email}' is already registered by another user."
+
+        if not error and new_password:
+            if new_password != confirm_password:
+                error = "New Password and Confirm Password do not match."
+            elif len(new_password) < 6: 
+                error = "New Password must be at least 6 characters long."
+
+        if error:
+            flash(error, 'danger')
+            return render_template('edit_operator.html', operator=operator)
+        else:
+            query_update = "UPDATE User SET name = %s, email = %s WHERE id = %s"
+            params_update = [name, email, operator_id]
+            
+            if new_password:
+                password_hash = generate_password_hash(new_password)
+                query_update = "UPDATE User SET name = %s, email = %s, password_hash = %s WHERE id = %s"
+                params_update = [name, email, password_hash, operator_id]
+
+            try:
+                 execute_query(query_update, tuple(params_update))
+                 flash(f"Operator '{name}' updated successfully.", 'success')
+                 return redirect(url_for('manage_operators'))
+            except Exception as e:
+                 flash(f"Error updating operator: {e}", 'danger')
+                 return render_template('edit_operator.html', operator=operator)
+
+    return render_template('edit_operator.html', operator=operator)
+
+@app.route('/delete_operator/<int:operator_id>', methods=['POST']) 
+@login_required
+@role_required('doctor')
+def delete_operator(operator_id):
+    """Handles deleting an operator."""
+    operator = fetch_one("SELECT name FROM User WHERE id = %s AND role = 'operator'", (operator_id,))
+    if not operator:
+        flash("Operator not found.", "danger")
+    else:
+        try:
+            execute_query("DELETE FROM User WHERE id = %s AND role = 'operator'", (operator_id,))
+            flash(f"Operator '{operator['name']}' deleted successfully.", "success")
+        except Exception as e:
+            flash(f"Error deleting operator: {e}. Check if operator is linked to other records.", "danger")
+
+    return redirect(url_for('manage_operators'))
+    
 @app.route('/manage_patients')
 @login_required
 @role_required('doctor')
 def manage_patients():
     """Displays a list of patients for management."""
-    # Fetch all patients from DB
     patients = fetch_all("SELECT id, name, dob, gender, address FROM Patient ORDER BY name")
-    # Render the specific template for managing patients
     return render_template('manage_patients.html', patients=patients)
-    # flash("Patient management page not yet implemented.", "info") # Remove placeholder
-    # return redirect(url_for('manage_users')) # Remove placeholder
+
+@app.route('/edit_patient/<int:patient_id>', methods=['GET', 'POST'])
+@login_required
+@role_required('doctor')
+def edit_patient(patient_id):
+    """Handles editing patient details."""
+    patient = fetch_one("SELECT id, name, dob, gender, address FROM Patient WHERE id = %s", (patient_id,))
+    if not patient:
+        flash("Patient not found.", "danger")
+        return redirect(url_for('manage_patients'))
+
+    if request.method == 'POST':
+        name = request.form.get('name')
+        dob = request.form.get('dob')
+        gender = request.form.get('gender')
+        address = request.form.get('address')
+        error = None
+
+        if not name or not dob or not gender:
+            error = "Name, Date of Birth, and Gender are required."
+
+        if not error:
+             try:
+                 dob_date = datetime.datetime.strptime(dob, '%Y-%m-%d').date()
+             except ValueError:
+                 error = "Invalid Date of Birth format. Use YYYY-MM-DD."
+
+        if not error and gender not in ['M', 'F', 'O']:
+             error = "Invalid Gender selected."
+
+        if error:
+            flash(error, 'danger')
+            return render_template('edit_patient.html', patient=patient)
+        else:
+            try:
+                query = """UPDATE Patient SET name = %s, dob = %s, gender = %s, address = %s
+                           WHERE id = %s"""
+                execute_query(query, (name, dob, gender, address, patient_id))
+                flash(f"Patient '{name}' updated successfully.", 'success')
+                return redirect(url_for('manage_patients'))
+            except Exception as e:
+                flash(f"Error updating patient: {e}", 'danger')
+                return render_template('edit_patient.html', patient=patient)
+
+    if patient.get('dob') and isinstance(patient['dob'], datetime.date):
+         patient['dob_str'] = patient['dob'].strftime('%Y-%m-%d')
+    else:
+         patient['dob_str'] = ''
+    return render_template('edit_patient.html', patient=patient)
+
+@app.route('/delete_patient/<int:patient_id>', methods=['POST'])
+@login_required
+@role_required('doctor')
+def delete_patient(patient_id):
+    """Handles deleting a patient."""
+    patient = fetch_one("SELECT name FROM Patient WHERE id = %s", (patient_id,))
+    if not patient:
+        flash("Patient not found.", "danger")
+    else:
+        try:
+            related_consultations = fetch_one("SELECT COUNT(*) as count FROM Consultation WHERE patient_id = %s", (patient_id,))
+            if related_consultations and related_consultations['count'] > 0:
+                 flash(f"Cannot delete patient '{patient['name']}' because they have existing consultations.", "danger")
+            else:
+                 execute_query("DELETE FROM Vitals WHERE patient_id = %s", (patient_id,))
+                 execute_query("DELETE FROM Patient WHERE id = %s", (patient_id,))
+                 flash(f"Patient '{patient['name']}' and associated vitals deleted successfully.", "success")
+        except Exception as e:
+            flash(f"Error deleting patient: {e}", "danger")
+
+    return redirect(url_for('manage_patients'))
+    
+@app.route('/patient_history/<int:patient_id>')
+@login_required
+@role_required('doctor')
+def patient_history(patient_id):
+    """Displays the consultation history for a specific patient."""
+    patient = fetch_one("SELECT id, name FROM Patient WHERE id = %s", (patient_id,))
+    if not patient:
+        flash("Patient not found.", "danger")
+        return redirect(url_for('manage_patients'))
+
+    consultations = fetch_all("""
+        SELECT id, consultation_date, diagnosis 
+        FROM Consultation 
+        WHERE patient_id = %s 
+        ORDER BY consultation_date DESC
+    """, (patient_id,))
+
+    return render_template('patient_history.html', patient=patient, consultations=consultations)
 
 @app.route('/add_user', methods=['GET', 'POST'])
 @login_required

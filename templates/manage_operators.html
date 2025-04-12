@@ -138,9 +138,16 @@
                                  <td>{{ op.name }}</td>
                                  <td>{{ op.email }}</td>
                                  <td class="table-actions">
-                                     <!-- Add Edit/Delete Links/Forms here when functionality is added -->
-                                     <a href="#" class="icon-link text-warning" title="Edit Operator (Not Implemented)"><i class="bi bi-pencil-square"></i></a>
-                                     <a href="#" class="icon-link text-danger" title="Delete Operator (Not Implemented)"><i class="bi bi-trash3"></i></a>
+                                     <!-- EDIT Link -->
+                                     <a href="{{ url_for('edit_operator', operator_id=op.id) }}" class="icon-link text-warning" title="Edit Operator">
+                                         <i class="bi bi-pencil-square"></i>
+                                     </a>
+                                     <!-- DELETE Form -->
+                                     <form action="{{ url_for('delete_operator', operator_id=op.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete operator {{ op.name }}? This cannot be undone.');">
+                                         <button type="submit" class="icon-link text-danger" title="Delete Operator" style="background: none; border: none; padding: 0; cursor: pointer; vertical-align: middle;">
+                                             <i class="bi bi-trash3"></i>
+                                         </button>
+                                     </form>
                                  </td>
                              </tr>
                              {% endfor %}

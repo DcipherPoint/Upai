@@ -80,7 +80,8 @@ def fetch_one(query, params=()):
     conn = get_db_connection()
     if not conn:
         return None
-    cursor = conn.cursor(dictionary=True)
+    # Use buffered cursor to avoid "Unread result found" errors
+    cursor = conn.cursor(buffered=True, dictionary=True)
     try:
         cursor.execute(query, params)
         result = cursor.fetchone()
@@ -97,7 +98,8 @@ def fetch_all(query, params=()):
     conn = get_db_connection()
     if not conn:
         return []
-    cursor = conn.cursor(dictionary=True)
+    # Use buffered cursor
+    cursor = conn.cursor(buffered=True, dictionary=True)
     try:
         cursor.execute(query, params)
         results = cursor.fetchall()
@@ -1336,54 +1338,55 @@ def check_in_dashboard():
 
 @app.route('/add_patient', methods=['GET', 'POST'])
 @login_required
-# Allow both Doctor and Operator to add patients
-# @role_required('operator') 
 def add_patient():
-    """Handles adding a new patient."""
-    if session.get('user_role') not in ['doctor', 'operator']:
-        flash("You do not have permission to add patients.", "danger")
-        return redirect(url_for('index'))
-
+    """Handles adding a new patient. Always redirects to manage_patients after POST."""
     if request.method == 'POST':
         name = request.form.get('name')
-        dob = request.form.get('dob') # Expect YYYY-MM-DD
+        dob = request.form.get('dob')
         gender = request.form.get('gender')
         address = request.form.get('address')
+        mobile_number = request.form.get('mobile_number') 
+        error = None
 
-        if not name or not dob or not gender:
-            flash("Patient Name, Date of Birth, and Gender are required.", "error")
-            # Return the form again, perhaps prepopulating if needed
-            return render_template('add_patient.html') 
-
-        # Validate DOB format (basic)
-        try:
-            datetime.datetime.strptime(dob, '%Y-%m-%d')
-        except ValueError:
-             flash("Invalid Date of Birth format. Please use YYYY-MM-DD.", "error")
-             return render_template('add_patient.html')
+        # --- Sequential Validation --- 
+        if not error and (not name or not dob or not gender or not mobile_number):
+            error = "Name, Date of Birth, Gender, and Mobile Number are required."
+        if not error:
+            if not mobile_number.isdigit() or len(mobile_number) != 10:
+                error = "Mobile Number must be exactly 10 digits."
+        if not error:
+            existing_patient = fetch_one("SELECT id FROM Patient WHERE mobile_number = %s", (mobile_number,))
+            if existing_patient:
+                error = f"Mobile number '{mobile_number}' is already registered to another patient."
+        if not error:
+            try:
+                datetime.datetime.strptime(dob, '%Y-%m-%d').date()
+            except ValueError:
+                error = "Invalid Date of Birth format. Use YYYY-MM-DD."
+        if not error and gender not in ['M', 'F', 'O']:
+            error = "Invalid Gender selected."
              
-        # Validate Gender
-        if gender not in ['M', 'F', 'O']:
-            flash("Invalid Gender selected.", "error")
-            return render_template('add_patient.html')
-
-        query = "INSERT INTO Patient (name, dob, gender, address) VALUES (%s, %s, %s, %s)"
-        params = (name, dob, gender, address)
-        patient_id = execute_query(query, params)
-
-        if patient_id:
-            flash(f"Patient '{name}' added successfully (ID: {patient_id}).", "success")
-            # Redirect back to appropriate dashboard based on role
-            if session['user_role'] == 'operator':
-                 return redirect(url_for('check_in_dashboard'))
-            else: # Doctor
-                 return redirect(url_for('index'))
+        # --- Action: Try Insert or Flash Error, THEN Redirect --- 
+        if error: 
+            flash(error, 'danger')
+            # Redirect even on validation error, flash message will appear on manage_patients
+            return redirect(url_for('manage_patients')) 
         else:
-            flash("Error adding patient to database.", "error")
-            return render_template('add_patient.html')
+            # ALL validation passed, attempt INSERT
+            try:
+                query = """INSERT INTO Patient (name, dob, gender, address, mobile_number) 
+                           VALUES (%s, %s, %s, %s, %s)"""
+                params = (name, dob, gender, address, mobile_number)
+                execute_query(query, params)
+                flash(f"Patient '{name}' added successfully.", 'success')
+            except Exception as e:
+                flash(f"Database Error adding patient: {e}", 'danger') 
+            # Always redirect after attempt (success or DB error)
+            return redirect(url_for('manage_patients'))
 
-    # GET request
-    return render_template('add_patient.html')
+    # --- GET Request Handling --- 
+    # Show the add form initially
+    return render_template('add_patient.html', form_data={})
 
 @app.route('/record_vitals', methods=['POST'])
 @login_required
@@ -1524,15 +1527,16 @@ def delete_operator(operator_id):
 @role_required('doctor')
 def manage_patients():
     """Displays a list of patients for management."""
-    patients = fetch_all("SELECT id, name, dob, gender, address FROM Patient ORDER BY name")
+    # Fetch mobile_number as well
+    patients = fetch_all("SELECT id, name, dob, gender, address, mobile_number FROM Patient ORDER BY name")
     return render_template('manage_patients.html', patients=patients)
 
 @app.route('/edit_patient/<int:patient_id>', methods=['GET', 'POST'])
 @login_required
 @role_required('doctor')
 def edit_patient(patient_id):
-    """Handles editing patient details."""
-    patient = fetch_one("SELECT id, name, dob, gender, address FROM Patient WHERE id = %s", (patient_id,))
+    """Handles editing patient details. Always redirects to manage_patients after POST."""
+    patient = fetch_one("SELECT id, name, dob, gender, address, mobile_number FROM Patient WHERE id = %s", (patient_id,))
     if not patient:
         flash("Patient not found.", "danger")
         return redirect(url_for('manage_patients'))
@@ -1542,39 +1546,55 @@ def edit_patient(patient_id):
         dob = request.form.get('dob')
         gender = request.form.get('gender')
         address = request.form.get('address')
+        mobile_number = request.form.get('mobile_number') 
         error = None
 
-        if not name or not dob or not gender:
+        # --- Sequential Validation --- 
+        if not error and (not name or not dob or not gender):
             error = "Name, Date of Birth, and Gender are required."
-
+        if not error and mobile_number: 
+            if not mobile_number.isdigit() or len(mobile_number) != 10:
+                error = "Mobile Number must be exactly 10 digits."
+        current_mobile = patient.get('mobile_number')
+        if not error and mobile_number and mobile_number != current_mobile: 
+            existing_patient = fetch_one("SELECT id FROM Patient WHERE mobile_number = %s AND id != %s", (mobile_number, patient_id))
+            if existing_patient:
+                error = f"Mobile number '{mobile_number}' is already registered to another patient."
         if not error:
              try:
-                 dob_date = datetime.datetime.strptime(dob, '%Y-%m-%d').date()
+                 datetime.datetime.strptime(dob, '%Y-%m-%d').date()
              except ValueError:
                  error = "Invalid Date of Birth format. Use YYYY-MM-DD."
-
         if not error and gender not in ['M', 'F', 'O']:
              error = "Invalid Gender selected."
 
-        if error:
+        # --- Action: Try Update or Flash Error, THEN Redirect --- 
+        if error: 
             flash(error, 'danger')
-            return render_template('edit_patient.html', patient=patient)
+            # Redirect even on validation error
+            return redirect(url_for('manage_patients'))
         else:
+            # ALL validation passed, attempt UPDATE
             try:
-                query = """UPDATE Patient SET name = %s, dob = %s, gender = %s, address = %s
+                query = """UPDATE Patient SET name = %s, dob = %s, gender = %s, address = %s, mobile_number = %s
                            WHERE id = %s"""
-                execute_query(query, (name, dob, gender, address, patient_id))
+                final_mobile = mobile_number if mobile_number else None 
+                params = (name, dob, gender, address, final_mobile, patient_id)
+                execute_query(query, params)
                 flash(f"Patient '{name}' updated successfully.", 'success')
-                return redirect(url_for('manage_patients'))
             except Exception as e:
-                flash(f"Error updating patient: {e}", 'danger')
-                return render_template('edit_patient.html', patient=patient)
+                flash(f"Database Error updating patient: {e}", 'danger')
+            # Always redirect after attempt
+            return redirect(url_for('manage_patients'))
 
-    if patient.get('dob') and isinstance(patient['dob'], datetime.date):
-         patient['dob_str'] = patient['dob'].strftime('%Y-%m-%d')
+    # --- GET Request Handling --- 
+    # Prepare data for template rendering
+    patient_for_template = patient.copy()
+    if patient_for_template.get('dob') and isinstance(patient_for_template['dob'], datetime.date):
+         patient_for_template['dob_str'] = patient_for_template['dob'].strftime('%Y-%m-%d')
     else:
-         patient['dob_str'] = ''
-    return render_template('edit_patient.html', patient=patient)
+         patient_for_template['dob_str'] = ''
+    return render_template('edit_patient.html', patient=patient_for_template)
 
 @app.route('/delete_patient/<int:patient_id>', methods=['POST'])
 @login_required

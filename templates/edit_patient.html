@@ -20,7 +20,7 @@
         h2 { color: var(--primary-color); text-align: center; margin-bottom: 30px; font-weight: 600; font-size: 1.8em; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: 600; color: #495057; }
-        input[type="text"], input[type="date"], select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--dark-gray); border-radius: var(--border-radius); box-sizing: border-box; font-size: 1em; }
+        input[type="text"], input[type="date"], input[type="tel"], select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--dark-gray); border-radius: var(--border-radius); box-sizing: border-box; font-size: 1em; }
         input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25); }
         textarea { min-height: 80px; resize: vertical; }
         button { padding: 10px 20px; background-color: var(--success-color); color: var(--white); border: none; border-radius: var(--border-radius); font-size: 1em; cursor: pointer; transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
@@ -80,6 +80,10 @@
                             <option value="F" {% if patient.gender == 'F' %}selected{% endif %}>Female</option>
                             <option value="O" {% if patient.gender == 'O' %}selected{% endif %}>Other</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="mobile_number">Mobile Number</label>
+                        <input type="tel" id="mobile_number" name="mobile_number" value="{{ patient.mobile_number or '' }}" pattern="[0-9]+" title="Please enter digits only">
                     </div>
                     <div class="form-group">
                         <label for="address">Address</label>

@@ -479,7 +479,19 @@
         <main class="main-content">
             <div class="content-wrapper">
                 <h2>Consultation Record</h2>
-                <div class="patient-info">Patient: <strong>{{ patient.name }}</strong> (ID: {{ patient_id }})</div>
+                <div class="patient-details">
+                    <h3>Patient Details</h3>
+                    <p><strong>Name:</strong> {{ patient.name }}</p>
+                    <p><strong>ID:</strong> {{ patient.id }}</p>
+                    <p><strong>DoB:</strong> {{ patient.dob.strftime('%d-%b-%Y') if patient.dob else 'N/A' }} ({{ age_str }})</p>
+                    <p><strong>Gender:</strong> {{ patient.gender }}</p>
+                    <p><strong>Mobile:</strong> {{ patient.mobile_number or 'N/A' }}</p>
+                    <p><strong>Address:</strong> {{ patient.address or 'N/A' }}</p>
+                </div>
+
+                <hr>
+
+                <!-- Vitals Area -->
 
                 <div class="audio-selection" style="text-align: center; margin-bottom: 20px;">
                     <label for="audioSource"><i class="bi bi-mic"></i> Microphone:</label>

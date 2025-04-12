@@ -3,35 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Patient - Upai Assistant</title>
+    <title>Add Patient - Upai</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         /* Basic styles - reuse from login or create base.css */
         :root {
-            --primary-color: #0056b3; --secondary-color: #6c757d; --light-gray: #f8f9fa;
-            --medium-gray: #e9ecef; --dark-gray: #dee2e6; --text-color: #343a40; --white: #ffffff;
-            --success-color: #198754; --danger-color: #dc3545; --warning-color: #ffc107; --info-color: #0dcaf0;
-            --border-radius: 6px; --box-shadow: 0 2px 5px rgba(0,0,0,0.07); --header-height: 60px;
+            --primary-color: #0056b3;
+            --secondary-color: #6c757d;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --dark-gray: #dee2e6;
+            --text-color: #343a40;
+            --white: #ffffff;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --border-radius: 6px;
+            --box-shadow: 0 2px 5px rgba(0,0,0,0.07);
+            --header-height: 60px;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; background-color: var(--light-gray); margin: 0; }
-        .app-container { display: flex; flex-direction: column; min-height: 100vh; }
-        .header { background-color: var(--primary-color); color: var(--white); padding: 0 30px; height: var(--header-height); display: flex; justify-content: space-between; align-items: center; box-shadow: var(--box-shadow); position: sticky; top: 0; z-index: 1000; }
-        .header h1 { margin: 0; font-size: 1.7em; font-weight: 600; } .header h1 i { vertical-align: middle; margin-right: 8px; }
-        .header a, .header a:visited { color: var(--white); text-decoration: none; font-size: 0.95em; padding: 8px 12px; border-radius: var(--border-radius); transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: var(--light-gray);
+            margin: 0;
+        }
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .header {
+            background-color: var(--primary-color); color: var(--white);
+            padding: 0 30px; height: var(--header-height);
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: var(--box-shadow); position: sticky; top: 0; z-index: 1000;
+        }
+        .header h1 { margin: 0; font-size: 1.7em; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;}
+        .header a, .header a:visited {
+            color: var(--white); text-decoration: none; font-size: 0.95em;
+            padding: 8px 12px; border-radius: var(--border-radius);
+            transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px;
+        }
         .header a:hover { background-color: rgba(255, 255, 255, 0.15); }
-        .main-content { padding: 30px; width: 100%; box-sizing: border-box; margin: 0; flex-grow: 1; display: flex; justify-content: center; }
-        .content-wrapper { width: 100%; max-width: 600px; background-color: var(--white); padding: 30px; border-radius: var(--border-radius); box-shadow: var(--box-shadow); }
-        h2 { color: var(--primary-color); text-align: center; margin-bottom: 30px; font-weight: 600; font-size: 1.8em; }
-        .form-group { margin-bottom: 15px; } label { display: block; margin-bottom: 5px; font-weight: 600; color: #495057; }
-        input[type="text"], input[type="date"], select, textarea { width: 100%; padding: 10px; border: 1px solid var(--dark-gray); border-radius: var(--border-radius); box-sizing: border-box; font-size: 1em; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25); }
+        .main-content {
+            padding: 30px; width: 100%;
+            box-sizing: border-box; margin: 0; flex-grow: 1;
+            display: flex; justify-content: center;
+        }
+        .content-wrapper {
+            width: 100%; max-width: 600px; /* Adjust width as needed */
+            background-color: var(--white);
+            padding: 30px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+        }
+        h2 {
+            color: var(--primary-color); text-align: center;
+            margin-bottom: 30px; font-weight: 600; font-size: 1.8em;
+            display: inline-flex; align-items: center; gap: 10px;
+        }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #495057; }
+        /* Ensure input[type="tel"] is styled consistently */
+        input[type="text"], input[type="date"], input[type="tel"], select, textarea { 
+            width: 100%; padding: 10px 12px; border: 1px solid var(--dark-gray); 
+            border-radius: var(--border-radius); box-sizing: border-box; font-size: 1em; 
+        }
+        input:focus, select:focus, textarea:focus { 
+            outline: none; border-color: var(--primary-color); 
+            box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25); 
+        }
         textarea { min-height: 80px; resize: vertical; }
-        button { padding: 10px 20px; background-color: var(--primary-color); color: var(--white); border: none; border-radius: var(--border-radius); font-size: 1em; cursor: pointer; transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; } button:hover { background-color: #004085; }
-        button.secondary { background-color: var(--secondary-color); margin-left: 10px; } button.secondary:hover { background-color: #5a6268; }
-        .action-buttons { text-align: center; margin-top: 30px; }
-        .flash-messages { margin-bottom: 20px; } .flash { padding: 12px 15px; margin-bottom: 15px; border-radius: var(--border-radius); font-size: 0.95em; }
-        .flash.success { background-color: #d1e7dd; border: 1px solid #badbcc; color: #0f5132; } .flash.error, .flash.danger { background-color: #f8d7da; border: 1px solid #f5c2c7; color: #842029; }
-        .flash.warning { background-color: #fff3cd; border: 1px solid #ffecb5; color: #664d03; } .flash.info { background-color: #cff4fc; border: 1px solid #b6effb; color: #055160; }
+        button {
+            padding: 10px 20px; background-color: var(--primary-color); color: var(--white);
+            border: none; border-radius: var(--border-radius); font-size: 1em; cursor: pointer;
+            transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px;
+        }
+        button:hover { background-color: #004085; }
+        a.button.secondary {
+             padding: 10px 20px; background-color: var(--secondary-color); color: var(--white); border: none; border-radius: var(--border-radius); font-size: 1em; cursor: pointer; transition: background-color 0.2s ease; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+         }
+         a.button.secondary:hover {
+             background-color: #5a6268;
+         }
+        .action-buttons {
+            text-align: center;
+            margin-top: 30px;
+            display: flex; justify-content: center; gap: 15px;
+        }
+        .flash-messages { margin-bottom: 20px; padding: 0; list-style: none; }
+        .flash { padding: 12px 15px; margin-bottom: 15px; border-radius: var(--border-radius); font-size: 0.95em; border: 1px solid transparent; }
+        .flash.success { background-color: #d1e7dd; border-color: #badbcc; color: #0f5132; }
+        .flash.error, .flash.danger { background-color: #f8d7da; border-color: #f5c2c7; color: #842029; }
+        .flash.warning { background-color: #fff3cd; border-color: #ffecb5; color: #664d03; }
+        .flash.info { background-color: #cff4fc; border-color: #b6effb; color: #055160; }
+        label .required { color: var(--danger-color); margin-left: 2px; }
     </style>
 </head>
 <body>
@@ -39,11 +106,11 @@
         <header class="header">
             <h1><i class="bi bi-person-plus-fill"></i> Add New Patient</h1>
             <div>
-                <span style="margin-right: 20px;">Logged in as: {{ session.user_name }} ({{ session.user_role }})</span>
-                {% if session.user_role == 'operator' %}
-                <a href="{{ url_for('check_in_dashboard') }}" style="margin-right: 10px;"><i class="bi bi-clipboard2-pulse"></i> Check-in</a>
-                {% elif session.user_role == 'doctor' %}
-                <a href="{{ url_for('index') }}" style="margin-right: 10px;"><i class="bi bi-people-fill"></i> Patients</a>
+                <span style="margin-right: 20px;">Welcome, {{ session.user_name }}!</span>
+                <a href="{{ url_for('index') }}" style="margin-right: 10px;"><i class="bi bi-house-door-fill"></i> Dashboard</a>
+                {% if session.user_role == 'doctor' %}
+                <a href="{{ url_for('manage_users') }}" style="margin-right: 10px;"><i class="bi bi-people-fill"></i> Management Hub</a>
+                <a href="{{ url_for('settings_page') }}" style="margin-right: 10px;"><i class="bi bi-gear-fill"></i> Settings</a>
                 {% endif %}
                 <a href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
             </div>
@@ -51,49 +118,46 @@
 
         <main class="main-content">
             <div class="content-wrapper">
-                <h2>Patient Details</h2>
+                <h2><i class="bi bi-person-plus-fill"></i> Add New Patient</h2>
 
-                <!-- Flash Messages -->
-                <div class="flash-messages">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                  {% if messages %}
-                    {% for category, message in messages %}
-                      <div class="flash {{ category }}">{{ message }}</div>
-                    {% endfor %}
-                  {% endif %}
-                {% endwith %}
-                </div>
+                {% include '_flash_messages.html' ignore missing %}
 
                 <form action="{{ url_for('add_patient') }}" method="post">
                     <div class="form-group">
-                        <label for="name">Full Name <span style="color: red;">*</span></label>
-                        <input type="text" id="name" name="name" required>
+                        <label for="name">Full Name <span class="required">*</span></label>
+                        <input type="text" id="name" name="name" value="{{ form_data.get('name', '') }}" required>
                     </div>
                     <div class="form-group">
-                        <label for="dob">Date of Birth <span style="color: red;">*</span></label>
-                        <input type="date" id="dob" name="dob" required>
+                        <label for="dob">Date of Birth <span class="required">*</span></label>
+                        <input type="date" id="dob" name="dob" value="{{ form_data.get('dob', '') }}" required>
                     </div>
                     <div class="form-group">
-                        <label for="gender">Gender <span style="color: red;">*</span></label>
+                        <label for="gender">Gender <span class="required">*</span></label>
                         <select id="gender" name="gender" required>
                             <option value="">-- Select Gender --</option>
-                            <option value="M">Male</option>
-                            <option value="F">Female</option>
-                            <option value="O">Other</option>
+                            <option value="M" {% if form_data.get('gender') == 'M' %}selected{% endif %}>Male</option>
+                            <option value="F" {% if form_data.get('gender') == 'F' %}selected{% endif %}>Female</option>
+                            <option value="O" {% if form_data.get('gender') == 'O' %}selected{% endif %}>Other</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="address">Address</label>
-                        <textarea id="address" name="address" rows="3"></textarea>
+                        <label for="mobile_number">Mobile Number <span class="required">*</span></label>
+                        <input type="tel" id="mobile_number" name="mobile_number" 
+                               value="{{ form_data.get('mobile_number', '') }}" 
+                               required 
+                               pattern="[0-9]{10}" 
+                               minlength="10" maxlength="10" 
+                               title="Please enter exactly 10 digits.">
                     </div>
-                   
+                    <div class="form-group">
+                        <label for="address">Address</label>
+                        <textarea id="address" name="address" rows="3">{{ form_data.get('address', '') }}</textarea>
+                    </div>
+
                     <div class="action-buttons">
                         <button type="submit"><i class="bi bi-person-plus-fill"></i> Add Patient</button>
-                        {% if session.user_role == 'operator' %}
-                        <a href="{{ url_for('check_in_dashboard') }}" class="secondary" style="text-decoration: none;"><i class="bi bi-x-circle"></i> Cancel</a>
-                        {% elif session.user_role == 'doctor' %}
-                        <a href="{{ url_for('index') }}" class="secondary" style="text-decoration: none;"><i class="bi bi-x-circle"></i> Cancel</a>
-                        {% endif %}
+                        <!-- Decide appropriate cancel destination -->
+                        <a href="{{ url_for('manage_patients') if session.user_role == 'doctor' else url_for('check_in_dashboard') }}" class="button secondary"><i class="bi bi-x-circle"></i> Cancel</a>
                     </div>
                 </form>
             </div>

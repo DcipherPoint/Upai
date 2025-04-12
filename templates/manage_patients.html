@@ -125,8 +125,9 @@
                             <tr>
                                 <th>ID</th>
                                 <th>Name</th>
-                                <th>Date of Birth</th>
+                                <th>DoB</th>
                                 <th>Gender</th>
+                                <th>Mobile Number</th>
                                 <th>Address</th>
                                 <th>Actions</th>
                             </tr>
@@ -138,6 +139,7 @@
                                 <td><a href="{{ url_for('patient_history', patient_id=p.id) }}" title="View Consultation History">{{ p.name }}</a></td>
                                 <td>{{ p.dob.strftime('%d-%b-%Y') if p.dob else 'N/A' }}</td>
                                 <td>{{ p.gender }}</td>
+                                <td>{{ p.mobile_number or 'N/A' }}</td>
                                 <td>{{ p.address or 'N/A' }}</td>
                                 <td class="table-actions">
                                     <a href="{{ url_for('edit_patient', patient_id=p.id) }}" class="icon-link text-warning" title="Edit Patient">

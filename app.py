@@ -122,11 +122,11 @@ def execute_query(query, params=()):
         cursor.execute(query, params)
         conn.commit()
         last_row_id = cursor.lastrowid
-        return last_row_id
+        return last_row_id # Returns the ID on success
     except mysql.connector.Error as err:
-        print(f"Database execution error: {err}")
+        print(f"Database execution error: {err}") # <<< ERROR IS PRINTED HERE
         conn.rollback()
-        return None
+        return None # Returns None on error
     finally:
         cursor.close()
         conn.close()
@@ -139,23 +139,208 @@ def login_required(f):
         if 'user_id' not in session:
             flash("Please log in to access this page.", "warning")
             return redirect(url_for('login', next=request.url))
+        # Optional: Add checks here if needed based on route/role
         return f(*args, **kwargs)
     return decorated_function
 
 def role_required(role):
+    # Keep existing role_required for staff pages
+    # ... (existing implementation)
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if 'user_id' not in session:
                 flash("Please log in to access this page.", "warning")
                 return redirect(url_for('login', next=request.url))
-            if session.get('user_role') != role:
-                flash(f"You do not have permission ({role} required) to access this page.", "danger")
-                # Redirect to index or a specific 'unauthorized' page if preferred
+            # Allow a list of roles or single role string
+            allowed_roles = [role] if isinstance(role, str) else role
+            if session.get('user_role') not in allowed_roles:
+                flash(f"You do not have permission ({ ', '.join(allowed_roles)} required) to access this page.", "danger")
                 return redirect(url_for('index')) 
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+# --- Patient Dashboard Routes --- MOVED HERE ---
+
+def patient_login_required(f):
+    """Decorator specifically for patient-facing routes."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Check for user_id, patient role, and linked_patient_id
+        if ('user_id' not in session or
+                session.get('user_role') != 'patient' or
+                'linked_patient_id' not in session or
+                session['linked_patient_id'] is None):
+            flash("Please log in as a patient to access this page.", "warning")
+            # Clear potentially incomplete session data
+            session.clear()
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/patient_dashboard')
+@patient_login_required # Use the specific patient decorator
+def patient_dashboard():
+    """Displays the patient's dashboard."""
+    patient_id = session.get('linked_patient_id')
+    user_name = session.get('user_name') # Get name from User session
+
+    # Fetch basic patient details (optional, could just use user_name)
+    patient_details = fetch_one("SELECT name, dob, gender FROM Patient WHERE id = %s", (patient_id,))
+    if not patient_details:
+        # This indicates an inconsistency between User and Patient table linkage
+        flash("Error: Patient profile not found for your login.", "danger")
+        session.clear() # Log out user if data is inconsistent
+        return redirect(url_for('login'))
+
+    # Fetch recent medication prescriptions (Example: last 2 consultations)
+    # This helps populate the medication logging section initially
+    prescriptions_query = """
+        SELECT consultation_date, prescription_details
+        FROM Consultation
+        WHERE patient_id = %s AND prescription_details IS NOT NULL AND prescription_details != '[]'
+        ORDER BY consultation_date DESC
+        LIMIT 2
+    """
+    recent_consultations = fetch_all(prescriptions_query, (patient_id,))
+
+    current_medications = []
+    if recent_consultations:
+        # Process the latest prescription JSON
+        latest_prescription_json = recent_consultations[0]['prescription_details']
+        try:
+            latest_prescription_list = json.loads(latest_prescription_json)
+            if isinstance(latest_prescription_list, list):
+                # Extract just the names, dosages, instructions for display
+                for med in latest_prescription_list:
+                    current_medications.append({
+                        "name": med.get('medicine_name', med.get('medicine', 'N/A')), # Handle both key variations
+                        "dosage": med.get('dosage', ''),
+                        "instructions": f"{med.get('frequency', '')} {med.get('duration', '')} {med.get('instructions', '')}".strip()
+                    })
+        except json.JSONDecodeError:
+            print(f"Error decoding prescription JSON for patient {patient_id}")
+
+
+    # Fetch recent symptom logs (Example: last 5)
+    recent_symptoms = fetch_all("""
+        SELECT log_timestamp, symptom_description, severity
+        FROM SymptomLog
+        WHERE patient_id = %s
+        ORDER BY log_timestamp DESC
+        LIMIT 5
+    """, (patient_id,))
+
+    return render_template('patient_dashboard.html',
+                           patient=patient_details,
+                           medications=current_medications,
+                           symptoms=recent_symptoms)
+
+# Add routes for logging symptoms and medication usage
+@app.route('/log_symptom', methods=['POST'])
+@patient_login_required
+def log_symptom():
+    patient_id = session['linked_patient_id']
+    user_id = session['user_id'] # Get user_id from session
+    symptom_desc = request.form.get('symptom_description')
+    severity = request.form.get('severity') # Get severity as string first for validation
+
+    if not symptom_desc:
+        flash("Symptom description cannot be empty.", "warning")
+    elif not severity: # Check if severity is provided
+        flash("Severity rating is required.", "warning")
+    else:
+        try:
+            severity_int = int(severity) # Convert to int
+            if not 1 <= severity_int <= 10:
+                 flash("Severity must be between 1 and 10.", "warning")
+                 return redirect(url_for('patient_dashboard')) # Redirect if invalid
+        except ValueError:
+             flash("Invalid severity value. Please enter a number between 1 and 10.", "warning")
+             return redirect(url_for('patient_dashboard')) # Redirect if not a number
+
+        # --- FIX: Get current timestamp ---
+        current_timestamp = datetime.datetime.now()
+
+        # --- FIX: Include log_timestamp in INSERT ---
+        query = "INSERT INTO SymptomLog (patient_id, user_id, log_timestamp, symptom_description, severity) VALUES (%s, %s, %s, %s, %s)"
+        # --- FIX: Pass current_timestamp to execute_query ---
+        success = execute_query(query, (patient_id, user_id, current_timestamp, symptom_desc, severity_int))
+        if success:
+            flash("Symptom logged successfully.", "success")
+        else:
+            # Check console logs for the specific DB error printed by execute_query
+            flash("Failed to log symptom. Please check server logs.", "danger")
+
+    return redirect(url_for('patient_dashboard'))
+
+
+@app.route('/log_medication', methods=['POST'])
+@patient_login_required
+def log_medication():
+    patient_id = session['linked_patient_id']
+    medication_name = request.form.get('medication_name')
+    notes = request.form.get('notes') # Optional notes
+
+    if not medication_name:
+        flash("Medication name cannot be empty.", "warning")
+    else:
+        # Simple log: just record that the named medication was taken
+        query = "INSERT INTO MedicationLog (patient_id, medication_name, notes) VALUES (%s, %s, %s)"
+        success = execute_query(query, (patient_id, medication_name, notes))
+        if success:
+            flash(f"'{medication_name}' logged as taken.", "success")
+        else:
+            flash("Failed to log medication.", "danger")
+
+    return redirect(url_for('patient_dashboard'))
+
+# Route to fetch data for the symptom chart
+@app.route('/get_symptom_data')
+@patient_login_required
+def get_symptom_data():
+    patient_id = session['linked_patient_id']
+    # Fetch data for the last 30 days (adjust as needed)
+    days_limit = 30
+    start_date = datetime.datetime.now() - datetime.timedelta(days=days_limit)
+
+    query = """
+        SELECT DATE(log_timestamp) as date, COUNT(*) as count, AVG(severity) as avg_severity
+        FROM SymptomLog
+        WHERE patient_id = %s AND log_timestamp >= %s
+        GROUP BY DATE(log_timestamp)
+        ORDER BY date ASC
+    """
+    symptom_data = fetch_all(query, (patient_id, start_date))
+
+    # Format for Chart.js
+    labels = [item['date'].strftime('%Y-%m-%d') for item in symptom_data]
+    counts = [item['count'] for item in symptom_data]
+    avg_severities = [float(item['avg_severity'] or 0) for item in symptom_data] # Handle None avg
+
+    chart_data = {
+        'labels': labels,
+        'datasets': [
+            {
+                'label': 'Daily Symptom Count',
+                'data': counts,
+                'borderColor': 'rgb(75, 192, 192)',
+                'tension': 0.1,
+                'yAxisID': 'yCount' # Assign to the first Y-axis
+            },
+            {
+                'label': 'Average Daily Severity (1-10)',
+                'data': avg_severities,
+                'borderColor': 'rgb(255, 99, 132)',
+                'tension': 0.1,
+                'yAxisID': 'ySeverity' # Assign to the second Y-axis
+            }
+        ]
+    }
+    return jsonify(chart_data)
+
+# --- END Patient Dashboard Routes --- 
 
 # --- PDF Generation Class (Redesigned Layout - Revision 3) ---
 
@@ -516,39 +701,73 @@ class ConsultationPDF(FPDF):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
+        login_type = request.form.get('login_type') # Hidden field to distinguish forms
         error = None
+        user = None
 
-        if not email or not password:
-            error = 'Email and Password are required.'
+        if login_type == 'staff':
+            email = request.form.get('email')
+            password = request.form.get('password')
+            if not email or not password:
+                error = 'Email and Password are required for staff login.'
+            else:
+                # Fetch staff user (doctor or operator) by email
+                user = fetch_one("SELECT id, name, email, role, password_hash FROM User WHERE email = %s AND role IN ('doctor', 'operator')", (email,))
+                if user is None or not check_password_hash(user['password_hash'], password):
+                    error = 'Incorrect email or password for staff.'
+
+        elif login_type == 'patient':
+            mobile = request.form.get('mobile') # Use 'mobile' from the patient form
+            password = request.form.get('password')
+            if not mobile or not password:
+                error = 'Mobile Number and Password are required for patient login.'
+            elif not mobile.isdigit() or len(mobile) != 10:
+                 error = "Mobile Number must be exactly 10 digits."
+            else:
+                # Fetch patient user by mobile number
+                # Ensure we select linked_patient_id
+                user = fetch_one("SELECT id, name, email, role, password_hash, linked_patient_id FROM User WHERE mobile_number = %s AND role = 'patient'", (mobile,))
+                if user is None or not check_password_hash(user['password_hash'], password):
+                    error = 'Incorrect mobile number or password for patient.'
+        else:
+            error = 'Invalid login attempt.'
+
+        if error:
             flash(error, 'danger')
-            return render_template('login.html')
+            # Return login page, potentially indicating which tab had the error if using tabs
+            # Pass login_type back to template to potentially keep the correct tab visible
+            return render_template('login.html', failed_login_type=login_type)
 
-        user = fetch_one("SELECT id, name, email, role, password_hash FROM User WHERE email = %s", (email,))
-
-        if user is None or not check_password_hash(user['password_hash'], password):
-            error = 'Incorrect email or password.'
-            flash(error, 'danger')
-            return render_template('login.html')
-        
         # Login successful - store user info in session
         session.clear()
         session['user_id'] = user['id']
-        session['user_name'] = user['name']
-        session['user_email'] = user['email']
+        session['user_name'] = user['name'] # Use name from User table for display
         session['user_role'] = user['role']
+        # Store linked patient ID for patient users - CRITICAL
+        if user['role'] == 'patient':
+             session['linked_patient_id'] = user['linked_patient_id']
+
         flash(f"Welcome back, {user['name']}!", 'success')
 
-        # Redirect to appropriate page based on role
+        # Redirect based on role
         if user['role'] == 'doctor':
-            return redirect(url_for('index')) # Doctor goes to patient dashboard
+            return redirect(url_for('index')) # Doctor dashboard
         elif user['role'] == 'operator':
-             return redirect(url_for('check_in_dashboard')) # Operator goes to check-in
-        else: # Patient role (if implemented later)
-             return redirect(url_for('index')) # Or a patient-specific view
+             return redirect(url_for('check_in_dashboard')) # Operator dashboard
+        elif user['role'] == 'patient':
+             # Redirect to new patient dashboard using the linked patient ID
+             if 'linked_patient_id' in session and session['linked_patient_id'] is not None:
+                 # Ensure patient dashboard route is defined
+                 return redirect(url_for('patient_dashboard')) 
+             else:
+                 # Handle missing linked_patient_id - should not happen if registration is correct
+                 flash('Login successful, but patient profile link missing. Please contact support.', 'warning')
+                 return redirect(url_for('login')) # Send back to login
+        else:
+             # Fallback, should not happen
+             return redirect(url_for('login'))
 
-    # GET request or failed login
+    # GET request
     return render_template('login.html')
 
 @app.route('/logout')
@@ -1338,54 +1557,52 @@ def check_in_dashboard():
 
 @app.route('/add_patient', methods=['GET', 'POST'])
 @login_required
+@role_required(['doctor', 'operator']) # Allow both to add patients
 def add_patient():
-    """Handles adding a new patient. Always redirects to manage_patients after POST."""
+    """Handles adding a new patient from the staff interface."""
     if request.method == 'POST':
         name = request.form.get('name')
         dob = request.form.get('dob')
         gender = request.form.get('gender')
         address = request.form.get('address')
-        mobile_number = request.form.get('mobile_number') 
+        # Mobile number is NOT added to Patient table here anymore
         error = None
 
-        # --- Sequential Validation --- 
-        if not error and (not name or not dob or not gender or not mobile_number):
-            error = "Name, Date of Birth, Gender, and Mobile Number are required."
-        if not error:
-            if not mobile_number.isdigit() or len(mobile_number) != 10:
-                error = "Mobile Number must be exactly 10 digits."
-        if not error:
-            existing_patient = fetch_one("SELECT id FROM Patient WHERE mobile_number = %s", (mobile_number,))
-            if existing_patient:
-                error = f"Mobile number '{mobile_number}' is already registered to another patient."
+        if not name or not dob or not gender:
+            error = "Name, Date of Birth, and Gender are required."
+        
         if not error:
             try:
                 datetime.datetime.strptime(dob, '%Y-%m-%d').date()
             except ValueError:
                 error = "Invalid Date of Birth format. Use YYYY-MM-DD."
-        if not error and gender not in ['M', 'F', 'O']:
-            error = "Invalid Gender selected."
-             
-        # --- Action: Try Insert or Flash Error, THEN Redirect --- 
-        if error: 
-            flash(error, 'danger')
-            # Redirect even on validation error, flash message will appear on manage_patients
-            return redirect(url_for('manage_patients')) 
-        else:
-            # ALL validation passed, attempt INSERT
-            try:
-                query = """INSERT INTO Patient (name, dob, gender, address, mobile_number) 
-                           VALUES (%s, %s, %s, %s, %s)"""
-                params = (name, dob, gender, address, mobile_number)
-                execute_query(query, params)
-                flash(f"Patient '{name}' added successfully.", 'success')
-            except Exception as e:
-                flash(f"Database Error adding patient: {e}", 'danger') 
-            # Always redirect after attempt (success or DB error)
-            return redirect(url_for('manage_patients'))
 
-    # --- GET Request Handling --- 
-    # Show the add form initially
+        if not error and gender not in ['M', 'F', 'O']:
+             error = "Invalid Gender selected."
+
+        # Note: No mobile number uniqueness check needed here 
+        # as it's not being stored in the Patient table directly.
+        # If a login needs to be created, that would be a separate process.
+
+        if error:
+            flash(error, 'danger')
+            # Pass data back to repopulate form
+            return render_template('add_patient.html', form_data=request.form)
+        else:
+            # Insert only core details into Patient table
+            query = """INSERT INTO Patient (name, dob, gender, address)
+                       VALUES (%s, %s, %s, %s)"""
+            patient_id = execute_query(query, (name, dob, gender, address))
+
+            if patient_id:
+                flash(f'Patient "{name}" added successfully with ID {patient_id}.', 'success')
+                # Redirect to patient list after adding
+                return redirect(url_for('manage_patients')) 
+            else:
+                flash('Error adding patient to the database.', 'danger')
+                return render_template('add_patient.html', form_data=request.form)
+
+    # GET request: Render the empty form
     return render_template('add_patient.html', form_data={})
 
 @app.route('/record_vitals', methods=['POST'])
@@ -1527,39 +1744,51 @@ def delete_operator(operator_id):
 @role_required('doctor')
 def manage_patients():
     """Displays a list of patients for management."""
-    # Fetch mobile_number as well
-    patients = fetch_all("SELECT id, name, dob, gender, address, mobile_number FROM Patient ORDER BY name")
+    # Fetch patient details and JOIN with User to get mobile number
+    # Using LEFT JOIN in case a Patient record somehow exists without a linked User
+    patients = fetch_all("""
+        SELECT 
+            p.id, p.name, p.dob, p.gender, p.address, 
+            u.mobile_number 
+        FROM Patient p
+        LEFT JOIN User u ON p.id = u.linked_patient_id AND u.role = 'patient'
+        ORDER BY p.name
+    """)
     return render_template('manage_patients.html', patients=patients)
 
 @app.route('/edit_patient/<int:patient_id>', methods=['GET', 'POST'])
 @login_required
 @role_required('doctor')
 def edit_patient(patient_id):
-    """Handles editing patient details. Always redirects to manage_patients after POST."""
-    patient = fetch_one("SELECT id, name, dob, gender, address, mobile_number FROM Patient WHERE id = %s", (patient_id,))
-    if not patient:
+    """Handles editing patient details and optionally creating their User login record."""
+    # Fetch patient details from Patient table
+    patient_core = fetch_one("SELECT id, name, dob, gender, address FROM Patient WHERE id = %s", (patient_id,))
+    if not patient_core:
         flash("Patient not found.", "danger")
         return redirect(url_for('manage_patients'))
+
+    # Fetch corresponding User record (if exists)
+    user_info = fetch_one("SELECT id, mobile_number FROM User WHERE linked_patient_id = %s AND role = 'patient'", (patient_id,))
+    has_login = user_info is not None
+    patient_mobile = user_info['mobile_number'] if has_login else None
+
+    # Pass form data back to template on failed POST to repopulate fields
+    form_data_to_render = request.form if request.method == 'POST' else {}
 
     if request.method == 'POST':
         name = request.form.get('name')
         dob = request.form.get('dob')
         gender = request.form.get('gender')
         address = request.form.get('address')
-        mobile_number = request.form.get('mobile_number') 
+        # Get mobile/password only if creating a new login
+        mobile_number_new = request.form.get('mobile_number_new')
+        password_new = request.form.get('password_new')
+        
         error = None
 
-        # --- Sequential Validation --- 
+        # --- 1. Validate Core Patient Details --- 
         if not error and (not name or not dob or not gender):
             error = "Name, Date of Birth, and Gender are required."
-        if not error and mobile_number: 
-            if not mobile_number.isdigit() or len(mobile_number) != 10:
-                error = "Mobile Number must be exactly 10 digits."
-        current_mobile = patient.get('mobile_number')
-        if not error and mobile_number and mobile_number != current_mobile: 
-            existing_patient = fetch_one("SELECT id FROM Patient WHERE mobile_number = %s AND id != %s", (mobile_number, patient_id))
-            if existing_patient:
-                error = f"Mobile number '{mobile_number}' is already registered to another patient."
         if not error:
              try:
                  datetime.datetime.strptime(dob, '%Y-%m-%d').date()
@@ -1568,33 +1797,95 @@ def edit_patient(patient_id):
         if not error and gender not in ['M', 'F', 'O']:
              error = "Invalid Gender selected."
 
-        # --- Action: Try Update or Flash Error, THEN Redirect --- 
+        # --- 2. Validate New Login Details (only if no login exists and fields were submitted) ---
+        if not error and not has_login and (mobile_number_new or password_new):
+             if not mobile_number_new or not password_new:
+                 error = "Both Mobile Number and Initial Password are required to create patient login."
+             elif not mobile_number_new.isdigit() or len(mobile_number_new) != 10:
+                 error = "Mobile Number must be exactly 10 digits."
+             elif len(password_new) < 6:
+                 error = "Password must be at least 6 characters long."
+             else:
+                 # Check uniqueness of mobile number in User table
+                 existing_user_mobile = fetch_one("SELECT id FROM User WHERE mobile_number = %s", (mobile_number_new,))
+                 if existing_user_mobile:
+                     error = f"Mobile number '{mobile_number_new}' is already registered."
+        
+        # --- Action: Try Update/Insert or Flash Error --- 
         if error: 
             flash(error, 'danger')
-            # Redirect even on validation error
-            return redirect(url_for('manage_patients'))
+            # Render the edit form again, passing necessary data back
+            patient_for_template = patient_core.copy()
+            patient_for_template['mobile_number'] = patient_mobile # Use existing mobile if available
+            if patient_for_template.get('dob') and isinstance(patient_for_template['dob'], datetime.date):
+                 patient_for_template['dob_str'] = patient_for_template['dob'].strftime('%Y-%m-%d')
+            else: 
+                 patient_for_template['dob_str'] = dob # Use submitted dob if formatting was wrong
+            return render_template('edit_patient.html', patient=patient_for_template, has_login=has_login, form_data=form_data_to_render)
         else:
-            # ALL validation passed, attempt UPDATE
+            # --- Database Operations --- 
+            conn = get_db_connection()
+            if not conn:
+                 flash("Database connection error.", "danger")
+                 # Redirect to prevent further action without DB
+                 return redirect(url_for('manage_patients')) 
+                 
+            cursor = conn.cursor()
             try:
-                query = """UPDATE Patient SET name = %s, dob = %s, gender = %s, address = %s, mobile_number = %s
-                           WHERE id = %s"""
-                final_mobile = mobile_number if mobile_number else None 
-                params = (name, dob, gender, address, final_mobile, patient_id)
-                execute_query(query, params)
-                flash(f"Patient '{name}' updated successfully.", 'success')
+                # 1. Update Patient table (always do this)
+                patient_query = """UPDATE Patient SET name = %s, dob = %s, gender = %s, address = %s
+                                   WHERE id = %s"""
+                patient_params = (name, dob, gender, address, patient_id)
+                cursor.execute(patient_query, patient_params)
+                
+                # 2. Create User record (only if needed and details provided)
+                user_created = False
+                if not has_login and mobile_number_new and password_new:
+                    password_hash = generate_password_hash(password_new)
+                    user_query = """INSERT INTO User (name, mobile_number, password_hash, role, linked_patient_id)
+                                    VALUES (%s, %s, %s, %s, %s)"""
+                    # Use patient's name for the User record name field as well
+                    user_params = (name, mobile_number_new, password_hash, 'patient', patient_id)
+                    cursor.execute(user_query, user_params)
+                    if cursor.lastrowid:
+                        user_created = True
+                    else:
+                        raise mysql.connector.Error("Failed to create User record (no lastrowid).")
+
+                # Commit changes if all operations successful
+                conn.commit()
+                
+                flash_msg = f"Patient '{name}' updated successfully."
+                if user_created:
+                    flash_msg += " Login account created."
+                flash(flash_msg, 'success')
+
+            except mysql.connector.Error as db_err:
+                conn.rollback()
+                logging.error(f"Database error updating/creating patient/user {patient_id}: {db_err}")
+                flash(f"Database Error: {db_err}", 'danger')
             except Exception as e:
-                flash(f"Database Error updating patient: {e}", 'danger')
-            # Always redirect after attempt
+                 conn.rollback()
+                 logging.error(f"Unexpected error updating/creating patient/user {patient_id}: {e}")
+                 flash(f"An unexpected error occurred: {e}", 'danger')
+            finally:
+                if conn.is_connected():
+                    cursor.close()
+                    conn.close()
+                    
+            # Always redirect after attempt (success or failure)
             return redirect(url_for('manage_patients'))
 
     # --- GET Request Handling --- 
     # Prepare data for template rendering
-    patient_for_template = patient.copy()
+    patient_for_template = patient_core.copy()
+    patient_for_template['mobile_number'] = patient_mobile # Add mobile fetched from User table (or None)
     if patient_for_template.get('dob') and isinstance(patient_for_template['dob'], datetime.date):
          patient_for_template['dob_str'] = patient_for_template['dob'].strftime('%Y-%m-%d')
     else:
          patient_for_template['dob_str'] = ''
-    return render_template('edit_patient.html', patient=patient_for_template)
+    # Pass the combined data AND login status to the template
+    return render_template('edit_patient.html', patient=patient_for_template, has_login=has_login, form_data={})
 
 @app.route('/delete_patient/<int:patient_id>', methods=['POST'])
 @login_required
@@ -1680,6 +1971,100 @@ def add_user():
 
     # GET request: just render the empty form
     return render_template('add_user.html')
+
+# --- Patient Self-Registration --- 
+@app.route('/register_patient', methods=['GET', 'POST'])
+def register_patient():
+    form_data_to_render = request.form if request.method == 'POST' else {}
+    if request.method == 'POST':
+        name = request.form.get('name')
+        dob = request.form.get('dob')
+        gender = request.form.get('gender') 
+        address = request.form.get('address')
+        mobile_number = request.form.get('mobile_number')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        error = None
+
+        # --- Validation --- 
+        if not name or not dob or not mobile_number or not password or not confirm_password or not gender:
+            error = "All fields are required."
+        elif password != confirm_password:
+            error = "Passwords do not match."
+        elif len(password) < 6:
+            error = "Password must be at least 6 characters long."
+        elif not mobile_number.isdigit() or len(mobile_number) != 10:
+            error = "Mobile Number must be exactly 10 digits."
+        else:
+            # Check uniqueness of mobile number in the User table ONLY
+            # existing_patient = fetch_one("SELECT id FROM Patient WHERE mobile_number = %s", (mobile_number,)) # Removed check on Patient table
+            existing_user = fetch_one("SELECT id FROM User WHERE mobile_number = %s", (mobile_number,))
+            # Only check if the user exists in the User table by mobile number
+            if existing_user:
+                error = f"Mobile number '{mobile_number}' is already registered."
+        
+        if not error:
+            try:
+                # Validate date format but keep as string for insertion if valid
+                datetime.datetime.strptime(dob, '%Y-%m-%d').date()
+            except ValueError:
+                error = "Invalid Date of Birth format. Use YYYY-MM-DD."
+
+        if not error and gender not in ['M', 'F', 'O']:
+             error = "Invalid Gender selected."
+
+        if error:
+            flash(error, 'danger')
+            return render_template('register_patient.html', form_data=form_data_to_render)
+        else:
+            # --- Create Patient and User records --- 
+            patient_id = None
+            user_id = None
+            conn = get_db_connection()
+            if not conn:
+                 flash("Database connection error.", "danger")
+                 return render_template('register_patient.html', form_data=form_data_to_render)
+            
+            cursor = conn.cursor() # Need a single cursor for transaction-like behavior
+            try:
+                # 1. Insert into Patient table
+                # --- FIX: Remove mobile_number from Patient insert ---
+                patient_query = """INSERT INTO Patient (name, dob, gender, address)
+                                   VALUES (%s, %s, %s, %s)"""
+                patient_params = (name, dob, gender, address)
+                cursor.execute(patient_query, patient_params)
+                patient_id = cursor.lastrowid # Get ID from this cursor
+
+                if not patient_id:
+                    raise Exception("Failed to create patient record (no ID returned).")
+
+                # 2. Hash password and insert into User table
+                password_hash = generate_password_hash(password)
+                user_query = """INSERT INTO User (name, mobile_number, password_hash, role, linked_patient_id)
+                                VALUES (%s, %s, %s, %s, %s)"""
+                # Use the patient's name also for the User record's name field
+                user_params = (name, mobile_number, password_hash, 'patient', patient_id)
+                cursor.execute(user_query, user_params)
+                user_id = cursor.lastrowid # Get user ID
+
+                if not user_id:
+                     raise Exception("Failed to create user login record (no ID returned).")
+
+                # If both inserts succeed, commit
+                conn.commit()
+                flash('Registration successful! Please log in using your mobile number.', 'success')
+                return redirect(url_for('login'))
+
+            except Exception as e:
+                conn.rollback() # Rollback on ANY error during the process
+                flash(f"Registration failed: {e}", 'danger')
+                return render_template('register_patient.html', form_data=form_data_to_render)
+            finally:
+                 cursor.close()
+                 conn.close()
+
+    # GET request
+    return render_template('register_patient.html', form_data={})
 
 # --- Run the App ---
 if __name__ == '__main__':

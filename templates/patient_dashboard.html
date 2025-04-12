@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Dashboard - Upai</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Include Chart.js -->
+    <style>
+        :root {
+            --primary-color: #0d6efd; 
+            --secondary-color: #6c757d;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --dark-gray: #343a40;
+            --border-color: #dee2e6;
+            --background-color: #ffffff;
+            --text-color: #212529;
+            --card-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            --border-radius: 0.375rem;
+        }
+
+        body {
+            font-family: sans-serif;
+            background-color: var(--light-gray);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+        }
+        
+        .header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header .logo {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+        .header .user-info {
+            font-size: 0.9em;
+        }
+        .header a {
+            color: white;
+            text-decoration: none;
+            margin-left: 15px;
+            font-size: 0.9em;
+        }
+        .header a:hover {
+            text-decoration: underline;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 800px; /* Center content */
+            margin: 20px auto;
+        }
+
+        .card {
+            background-color: var(--background-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--card-shadow);
+            margin-bottom: 25px;
+            overflow: hidden; /* Ensure padding works with borders */
+        }
+        .card-header {
+            background-color: var(--medium-gray);
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            color: var(--dark-gray);
+            display: flex;
+            align-items: center;
+        }
+         .card-header i {
+            margin-right: 8px;
+            font-size: 1.1em;
+            color: var(--primary-color);
+         }
+        .card-body {
+            padding: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            font-size: 0.9em;
+            color: var(--secondary-color);
+        }
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        .form-group textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-align: center;
+            text-decoration: none;
+            transition: background-color 0.2s ease;
+        }
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+        }
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        .btn i {
+            margin-right: 5px;
+        }
+
+        .medication-list ul, .symptom-list ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .medication-list li, .symptom-list li {
+            border-bottom: 1px dashed var(--border-color);
+            padding: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95em;
+        }
+        .medication-list li:last-child, .symptom-list li:last-child {
+            border-bottom: none;
+        }
+        .medication-info strong {
+             display: block;
+             color: var(--primary-color);
+             margin-bottom: 3px;
+        }
+        .medication-info span, .symptom-info span {
+            color: var(--secondary-color);
+            font-size: 0.85em;
+            display: block;
+        }
+         .symptom-info strong {
+             color: var(--dark-gray);
+         }
+         .symptom-severity {
+             font-weight: bold;
+             color: var(--primary-color);
+             margin-left: 10px;
+         }
+         .symptom-time {
+             font-size: 0.8em;
+             color: var(--secondary-color);
+             margin-left: 10px;
+             text-align: right;
+         }
+
+        /* Chart Container */
+        #symptomChartContainer {
+             position: relative;
+             height: 300px;
+             width: 100%;
+             margin-top: 15px;
+        }
+
+        /* Flash Messages */
+        .flash-messages {
+             padding: 0 20px; /* Match container padding */
+             max-width: 800px;
+             margin: 15px auto 0 auto; /* Position below header */
+        }
+        .flash {
+            padding: 12px 15px;
+            border-radius: var(--border-radius);
+            margin-bottom: 10px;
+            font-size: 0.95em;
+            list-style: none;
+            border: 1px solid transparent;
+        }
+        .flash.success { background-color: #d1e7dd; color: #0f5132; border-color: #badbcc; }
+        .flash.danger { background-color: #f8d7da; color: #842029; border-color: #f5c2c7; }
+        .flash.warning { background-color: #fff3cd; color: #664d03; border-color: #ffecb5; }
+        .flash.info { background-color: #cff4fc; color: #055160; border-color: #b6effb; }
+
+        /* Responsive Adjustments */
+        @media (max-width: 600px) {
+            .container {
+                padding: 15px;
+            }
+            .card-header {
+                padding: 10px 15px;
+            }
+            .card-body {
+                padding: 15px;
+            }
+            .header {
+                 padding: 8px 15px;
+            }
+            .header .logo {
+                 font-size: 1.3em;
+            }
+            .flash-messages {
+                padding: 0 15px;
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo"><i class="bi bi-person-circle"></i> Upai Patient</div>
+        <div class="user-info">
+            Welcome, {{ session.user_name }}!
+            <a href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
+        </div>
+    </div>
+
+    <!-- Flash messages section -->
+    <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <div class="container">
+
+        <!-- Symptom Logging Card -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-heart-pulse"></i> Log Daily Symptoms</div>
+            <div class="card-body">
+                <form action="{{ url_for('log_symptom') }}" method="post">
+                    <div class="form-group">
+                        <label for="symptom_description">Describe your symptoms today</label>
+                        <textarea id="symptom_description" name="symptom_description" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="severity">Severity (1-10)</label>
+                        <input type="number" id="severity" name="severity" min="1" max="10" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Log Symptom</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Medication Logging Card -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-capsule-pill"></i> Log Medication Taken</div>
+            <div class="card-body">
+                 {% if medications %}
+                    <p>Select from your current prescription or enter manually:</p>
+                    <form action="{{ url_for('log_medication') }}" method="post">
+                        <div class="form-group">
+                            <label for="medication_name">Medication Name</label>
+                            <select id="medication_name" name="medication_name" required>
+                                <option value="" disabled selected>-- Select or type --</option>
+                                {% for med in medications %}
+                                    <option value="{{ med.name }}">{{ med.name }} ({{ med.dosage }})</option>
+                                {% endfor %}
+                                <!-- Allow typing a custom one? Maybe later -->
+                            </select>
+                             <!-- Add input for manual entry if needed -->
+                             <!-- <input type="text" name="medication_name_manual" placeholder="Or type name here"> -->
+                        </div>
+                        <div class="form-group">
+                            <label for="notes">Notes (Optional)</label>
+                            <textarea id="notes" name="notes"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle"></i> Log as Taken</button>
+                    </form>
+                 {% else %}
+                    <p>No current medications found from recent consultations. You can log manually if needed.</p>
+                     <form action="{{ url_for('log_medication') }}" method="post">
+                         <div class="form-group">
+                             <label for="medication_name_manual">Medication Name</label>
+                             <input type="text" id="medication_name_manual" name="medication_name" required placeholder="Enter medication name">
+                         </div>
+                         <div class="form-group">
+                             <label for="notes">Notes (Optional)</label>
+                             <textarea id="notes" name="notes"></textarea>
+                         </div>
+                         <button type="submit" class="btn btn-primary"><i class="bi bi-check2-circle"></i> Log as Taken</button>
+                     </form>
+                 {% endif %}
+            </div>
+        </div>
+
+        <!-- Current Medications List (from last consult) -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-list-task"></i> Current Prescription</div>
+            <div class="card-body medication-list">
+                {% if medications %}
+                    <ul>
+                        {% for med in medications %}
+                        <li>
+                            <div class="medication-info">
+                                <strong>{{ med.name }}</strong>
+                                <span>Dosage: {{ med.dosage or 'N/A' }}</span>
+                                <span>Instructions: {{ med.instructions or 'N/A' }}</span>
+                            </div>
+                            <!-- Add log button directly here? -->
+                            <!-- <button class="btn btn-sm btn-outline-primary">Log Taken</button> -->
+                        </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No active prescription details found in recent records.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Symptom Trends Card -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-graph-up"></i> Symptom Trends (Last 30 Days)</div>
+            <div class="card-body">
+                 <div id="symptomChartContainer">
+                    <canvas id="symptomChart"></canvas>
+                 </div>
+            </div>
+        </div>
+
+         <!-- Recent Symptom Logs Card -->
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history"></i> Recent Symptom Logs</div>
+            <div class="card-body symptom-list">
+                {% if symptoms %}
+                    <ul>
+                        {% for sym in symptoms %}
+                        <li>
+                            <div class="symptom-info">
+                                <strong>{{ sym.symptom_description }}</strong>
+                                {% if sym.severity %}
+                                    <span class="symptom-severity">Severity: {{ sym.severity }}/10</span>
+                                {% endif %}
+                            </div>
+                            <div class="symptom-time">
+                                {{ sym.log_timestamp.strftime('%Y-%m-%d %H:%M') }}
+                             </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No symptoms logged yet.</p>
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('symptomChart');
+            if (ctx) {
+                fetch("{{ url_for('get_symptom_data') }}") // Fetch data from the backend route
+                    .then(response => response.json())
+                    .then(data => {
+                        new Chart(ctx, {
+                            type: 'line', // Line chart
+                            data: data, // Use data fetched from backend
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    yCount: { // Define the first Y-axis for counts
+                                        type: 'linear',
+                                        display: true,
+                                        position: 'left',
+                                        title: {
+                                            display: true,
+                                            text: 'Symptom Count'
+                                        }
+                                    },
+                                    ySeverity: { // Define the second Y-axis for severity
+                                        type: 'linear',
+                                        display: true,
+                                        position: 'right',
+                                        title: {
+                                            display: true,
+                                            text: 'Avg Severity (1-10)'
+                                        },
+                                        min: 0,
+                                        max: 10, // Set scale for severity
+                                        grid: {
+                                            drawOnChartArea: false // Only show grid for the left axis
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    })
+                    .catch(error => console.error('Error fetching or rendering chart data:', error));
+            }
+        });
+    </script>
+
+</body>
+</html> 

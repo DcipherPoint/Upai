@@ -461,10 +461,18 @@
 <body>
     <div class="app-container">
          <header class="header">
-            <h1><i class="bi bi-heart-pulse-fill"></i> Upai Assistant</h1>
+            <!-- Show patient name in title if available -->
+            <h1><i class="bi bi-heart-pulse-fill"></i> Consultation: {{ patient.name }}</h1> 
             <div> 
-                <a href="{{ url_for('index') }}" style="margin-right: 15px;"><i class="bi bi-people-fill"></i> Patients</a>
-                <a href="{{ url_for('settings_page') }}"><i class="bi bi-gear-fill"></i> Settings</a>
+                <!-- Consistent Welcome Message -->
+                <span style="margin-right: 20px;">Welcome, {{ session.user_name }}!</span> 
+                 
+                <!-- Doctor Links -->
+                <a href="{{ url_for('index') }}" style="margin-right: 10px;"><i class="bi bi-house-door-fill"></i> Dashboard</a>
+                <a href="{{ url_for('settings_page') }}" style="margin-right: 10px;"><i class="bi bi-gear-fill"></i> Settings</a>
+                
+                <!-- Logout -->
+                <a href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Logout</a>
             </div>
         </header>
 
@@ -638,6 +646,7 @@
         let accumulatedTranscript = '';
         let isRecording = false;
         let isProcessing = false; // Track AI processing state
+        let isStoppingIntentional = false; // Add this flag
         let adrCheckIntervalId = null;
         const adrCheckInterval = 5000; // Check every 5 seconds (was 30000)
         let lastTranscriptLengthForADR = 0;
@@ -774,11 +783,21 @@
                         adrCheckIntervalId = null;
                         console.log("Stopped ADR check interval on WebSocket close.");
                     }
-                     if (accumulatedTranscript.length > 0 && isRecording) { 
+                     if (accumulatedTranscript.length > 0 && isRecording) {
                          console.log("Performing final ADR check on close.");
                          triggerADRCheck();
                      }
-                     if (isRecording) { // Handle unexpected close during recording
+                     
+                     // Check if the closure was intentional (user clicked Stop)
+                     if (isStoppingIntentional) {
+                        console.log("WebSocket closed intentionally by user.");
+                        isStoppingIntentional = false; // Reset flag
+                        // Optionally update status to 'Stopped' or similar
+                        liveStatus.textContent = "Stopped.";
+                        liveStatus.style.color = 'var(--secondary-color)';
+                     } 
+                     // Handle UNEXPECTED close during recording
+                     else if (isRecording) {
                         console.warn("WebSocket closed unexpectedly during recording.");
                         stopAudioProcessing(); 
                         isRecording = false;
@@ -786,11 +805,24 @@
                         updateButtonStates();
                         liveStatus.textContent = "Connection lost.";
                         liveStatus.style.color = 'var(--danger-color)';
+                        liveErrorDisplay.textContent = 'WebSocket connection lost unexpectedly. Cannot get live transcript.'; // Show error here
+                     }
+                     // Handle closure after recording has already stopped (e.g., server restart)
+                     else {
+                         console.log("WebSocket closed after recording stopped.");
+                         // No user-facing error needed here usually
                      }
                 };
 
                 socket.onerror = function(error) {
-                    console.error("WebSocket Error:", error);
+                    // Ignore errors that happen during intentional stopping
+                    if (isStoppingIntentional) {
+                        console.log("WebSocket error occurred during intentional stop, likely normal. Ignoring.");
+                        return; // Don't show error or stop processing again
+                    }
+                    
+                    // Handle UNEXPECTED errors
+                    console.error("WebSocket Error (Unexpected):", error);
                     liveErrorDisplay.textContent = 'WebSocket connection error. Cannot get live transcript.';
                     if (adrCheckIntervalId) {
                         clearInterval(adrCheckIntervalId);
@@ -802,7 +834,8 @@
                      isProcessing = false; // Ensure processing stops on error
                      updateButtonStates();
                     // alert('WebSocket connection error. Please try starting the recording again.'); // Already showing in liveErrorDisplay
-                    reject(error); 
+                    // If setupWebSocket returns a promise, reject it here for unexpected errors
+                    // reject(error); 
                 };
             });
         }
@@ -1019,6 +1052,7 @@
              aiDraftContainer.style.display = 'none'; // Hide draft area
 
             isRecording = true; 
+            isStoppingIntentional = false; // Ensure flag is false when starting
             updateButtonStates(); 
             liveStatus.textContent = "Initializing...";
             liveStatus.style.display = 'block';
@@ -1062,30 +1096,31 @@
             console.log("Stop & Process button clicked.");
             if (!isRecording) return;
 
-            // 1. Close WebSocket (if open)
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                 console.log("Closing WebSocket connection...");
-                 socket.close();
-            } else {
-                 console.log("WebSocket not open or already closed.");
-                 if (adrCheckIntervalId) { // Clear interval if socket wasn't open
-                    clearInterval(adrCheckIntervalId);
-                    adrCheckIntervalId = null;
-                    console.log("Cleared ADR interval manually on stop.");
-                 }
-            }
-
-            // 2. Stop Audio Processing
+            isStoppingIntentional = true; // Set flag BEFORE closing socket
+            isRecording = false; // <<< Set isRecording to false HERE
+            
             stopAudioProcessing();
 
-            // 3. Update State & UI
-            isRecording = false;
-            liveStatus.textContent = "Recording stopped. Processing...";
-            liveStatus.style.color = 'var(--primary-color)';
-            updateButtonStates(); // Disable start/stop, keep confirm/download disabled
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try {
+                    socket.close();
+                    console.log("WebSocket connection closed intentionally.");
+                } catch (e) {
+                    console.error("Error closing WebSocket:", e);
+                }
+            }
+            socket = null; // Clear socket reference
 
-            // 4. Trigger Transcript Processing
-            processTranscript(); // Call the processing function
+            updateButtonStates(); // <<< Now called AFTER isRecording is false
+            liveStatus.textContent = "Processing...";
+            liveStatus.style.color = 'var(--warning-color)';
+            
+            // Trigger final ADR check immediately after stopping
+            console.log("Performing final ADR check on stop & process.");
+            triggerADRCheck(); 
+
+            // Call AI processing
+            processTranscript();
         });
 
         // --- Event Listener for Confirm Button ---

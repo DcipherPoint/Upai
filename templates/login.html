@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Upai Assistant</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        /* Basic styles - consider moving to a separate CSS file */
+        :root {
+            --primary-color: #0056b3;
+            --secondary-color: #6c757d;
+            --light-gray: #f8f9fa;
+            --medium-gray: #e9ecef;
+            --dark-gray: #dee2e6;
+            --text-color: #343a40;
+            --white: #ffffff;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #0dcaf0;
+            --success-color: #198754;
+            --border-radius: 6px;
+            --box-shadow: 0 2px 5px rgba(0,0,0,0.07);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background-color: var(--light-gray);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .login-container {
+            background-color: var(--white);
+            padding: 40px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .login-container h1 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            font-size: 1.8em;
+            font-weight: 600;
+        }
+         .login-container h1 i {
+             vertical-align: middle;
+             margin-right: 8px;
+         }
+        .login-container p {
+            color: var(--secondary-color);
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid var(--dark-gray);
+            border-radius: var(--border-radius);
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+        .form-group input:focus {
+            outline: none;
+             border-color: var(--primary-color);
+             box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.25);
+        }
+        .login-button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--primary-color);
+            color: var(--white);
+            border: none;
+            border-radius: var(--border-radius);
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .login-button:hover {
+            background-color: #004085;
+        }
+        .flash-messages {
+            margin-bottom: 20px;
+        }
+        .flash {
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            border-radius: var(--border-radius);
+            font-size: 0.95em;
+        }
+        .flash.success { background-color: #d1e7dd; border: 1px solid #badbcc; color: #0f5132; }
+        .flash.error, .flash.danger { background-color: #f8d7da; border: 1px solid #f5c2c7; color: #842029; }
+        .flash.warning { background-color: #fff3cd; border: 1px solid #ffecb5; color: #664d03; }
+        .flash.info { background-color: #cff4fc; border: 1px solid #b6effb; color: #055160; }
+
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1><i class="bi bi-heart-pulse-fill"></i> Upai Assistant Login</h1>
+        <p>Please enter your credentials</p>
+
+        <!-- Flash Messages -->
+        <div class="flash-messages">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}\
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+        </div>
+
+        <form method="post">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" class="login-button">Login</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -5,12 +5,17 @@ import time # Ensure time is imported
 import re # Import regex for parsing
 import json # Import json for handling prescription data
 import logging
+from functools import wraps # Import wraps for decorators
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for, flash, session # Added session
+from flask import ( # Organize imports
+    Flask, request, jsonify, render_template, send_file, 
+    redirect, url_for, flash, session, abort 
+)
 from flask_sock import Sock # Added for WebSockets
 # Import WebSocket exceptions
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+from werkzeug.security import generate_password_hash, check_password_hash # For password hashing
 
 import mysql.connector
 from google.cloud import speech
@@ -124,10 +129,449 @@ def execute_query(query, params=()):
         cursor.close()
         conn.close()
 
+# --- Login / Auth Helper Functions & Decorators ---
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash("Please log in to access this page.", "warning")
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def role_required(role):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if 'user_id' not in session:
+                flash("Please log in to access this page.", "warning")
+                return redirect(url_for('login', next=request.url))
+            if session.get('user_role') != role:
+                flash(f"You do not have permission ({role} required) to access this page.", "danger")
+                # Redirect to index or a specific 'unauthorized' page if preferred
+                return redirect(url_for('index')) 
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+# --- PDF Generation Class (Redesigned Layout - Revision 3) ---
+
+class ConsultationPDF(FPDF):
+    def __init__(self, doctor_data, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.doctor_data = doctor_data
+        self.alias_nb_pages()
+        self.set_margins(12, 15, 12)
+        self.set_auto_page_break(auto=True, margin=20)
+        self.set_font("helvetica", size=9)
+        self.line_height = 4.5
+        self.section_title_height = self.line_height * 1.3
+        self.gap_after_section_title = 1.5
+        self.gap_between_sections = 3 # Renamed for clarity
+        self.gap_after_final_section = 4
+        self.page_content_width = self.w - self.l_margin - self.r_margin
+        self.col_width = (self.page_content_width - 6) / 2
+        self.col_gap = 6
+
+    def header(self):
+        header_y_start = self.get_y()
+        col1_width = self.page_content_width * 0.55
+        col2_width = self.page_content_width * 0.45
+        
+        # Left Block: Doctor Details
+        self.set_font("helvetica", "B", 11)
+        doctor_name = self.doctor_data.get('name', 'Dr. Default')
+        self.cell(col1_width, self.line_height + 1, doctor_name, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        self.set_font("helvetica", "", 9)
+        qualifications = self.doctor_data.get('qualifications', '')
+        if qualifications:
+             self.multi_cell(col1_width, self.line_height, qualifications, border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        reg_no = self.doctor_data.get('registration_number', '')
+        if reg_no:
+             # <<< FIX: Ensure Reg No is Left Aligned within its block >>>
+            self.cell(col1_width, self.line_height, f"Reg. No: {reg_no}", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        phone = self.doctor_data.get('phone_number', '')
+        if phone:
+             # <<< FIX: Ensure Mob No is Left Aligned within its block >>>
+             self.cell(col1_width, self.line_height, f"Mob. No: {phone}", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+             
+        y_after_left = self.get_y()
+        
+        # Right Block: Clinic Details
+        self.set_xy(self.l_margin + col1_width, header_y_start)
+        self.set_font("helvetica", "B", 11)
+        clinic_name = self.doctor_data.get('clinic_name', 'Clinic Name')
+        # Use multi_cell for potential wrapping of clinic name
+        self.multi_cell(col2_width, self.line_height + 1, clinic_name, border=0, align='R')
+        y_after_clinic_name = self.get_y()
+        current_x_right = self.l_margin + col1_width
+        
+        self.set_xy(current_x_right, y_after_clinic_name)
+        self.set_font("helvetica", "", 9)
+        address = self.doctor_data.get('clinic_address', '')
+        if address:
+            self.multi_cell(col2_width, self.line_height, address, border=0, align='R')
+        timings = self.doctor_data.get('clinic_timings', '')
+        if timings:
+            self.set_x(current_x_right) # Reset X
+            self.cell(col2_width, self.line_height, f"Timing: {timings}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        closed = self.doctor_data.get('clinic_closed_days', '')
+        if closed:
+            self.set_x(current_x_right) # Reset X
+            self.cell(col2_width, self.line_height, f"Closed: {closed}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+        y_after_right = self.get_y()
+        
+        # Draw line below header
+        self.set_y(max(y_after_left, y_after_right) + 2) # Increased gap
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(4) # Increased gap
+
+    def footer(self):
+        self.set_y(-18) # Position further up for signature space
+        
+        # Page Number (Centered)
+        page_num_y = self.get_y()
+        self.set_font("helvetica", "I", 8)
+        self.cell(0, 10, f"Page {self.page_no()}/{{nb}}", align="C", border=0)
+        
+        # Signature Area (Bottom Right) - Adjusted Y positioning relative to bottom
+        sig_width = 60
+        sig_x = self.w - self.r_margin - sig_width
+        sig_y = self.h - self.b_margin - 15 # Y position for the signature line itself
+        
+        self.set_y(sig_y) # Go to Y pos for signature line
+        self.line(sig_x, sig_y, sig_x + sig_width, sig_y) # Draw signature line
+        
+        # Position text below the line
+        self.set_xy(sig_x, sig_y + 1) 
+        self.set_font("helvetica", "B", 9)
+        doctor_name = self.doctor_data.get('name', 'Dr. Default')
+        self.cell(sig_width, self.line_height, doctor_name, align="C", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        self.set_x(sig_x)
+        self.set_font("helvetica", "", 8)
+        qualifications = self.doctor_data.get('qualifications', '')
+        if qualifications:
+            self.cell(sig_width, self.line_height, qualifications, align="C", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        reg_no = self.doctor_data.get('registration_number', '')
+        if reg_no:
+            self.set_x(sig_x)
+            self.cell(sig_width, self.line_height, f"Reg. No.: {reg_no}", align="C", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        # Reset Y to avoid interfering with page numbering if content was short
+        self.set_y(page_num_y)
+
+    def add_patient_details(self, name, patient_id, dob, gender):
+        self.set_font("helvetica", "", 9)
+        id_text = f"ID: {patient_id}"
+        id_width = self.get_string_width(id_text) + 5
+        self.cell(id_width, self.line_height, id_text)
+        name_text = f"{name}"
+        name_width = self.get_string_width(name_text) + 5
+        self.cell(name_width, self.line_height, name_text)
+        age = ''
+        if isinstance(dob, (datetime.date, datetime.datetime)):
+            today = datetime.date.today()
+            age_years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            age = f"({age_years} Yrs)"
+        gender_age_text = f"{gender} / {age}"
+        self.cell(0, self.line_height, gender_age_text, align='R')
+        self.ln(self.line_height + 1)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(4) # Increased gap
+
+    def add_consultation_date(self, date):
+        self.set_font("helvetica", "B", 9)
+        date_str = date.strftime('%d-%b-%Y %I:%M %p') if isinstance(date, datetime.datetime) else str(date)
+        current_y = self.get_y()
+        # Position X for right alignment before calling cell
+        date_width = self.get_string_width(f"Date: {date_str}")
+        self.set_x(self.w - self.r_margin - date_width)
+        self.cell(date_width, self.line_height, f"Date: {date_str}", align="R")
+        # Use ln() to move below the date cell's height
+        self.ln(self.line_height + 3)
+
+    def add_vitals(self, vitals_dict):
+        self.set_font("helvetica", "B", 10)
+        title = "Vitals"
+        title_width = self.get_string_width(title) + 2
+        self.cell(title_width, self.section_title_height, title)
+        self.ln(self.section_title_height + self.gap_after_section_title)
+        
+        if not vitals_dict: 
+            self.set_font("helvetica", "I", 9)
+            self.cell(0, self.line_height, "(No vitals recorded)")
+            self.ln(self.line_height + self.gap_between_sections)
+            # No line below vitals
+            return
+        
+        self.set_font("helvetica", "", 9)
+        bp = f"BP: {vitals_dict.get('bp_systolic', '--')}/{vitals_dict.get('bp_diastolic', '--')} mmHg"
+        hr = f"HR: {vitals_dict.get('heart_rate', '--')} bpm"
+        temp = f"Temp: {vitals_dict.get('temperature', '--')} °C"
+        spo2 = f"SpO2: {vitals_dict.get('spo2', '--')} %"
+        weight = f"Wt: {vitals_dict.get('weight_kg', '--')} kg"
+        height = f"Ht: {vitals_dict.get('height_cm', '--')} cm"
+        
+        # 3-column layout for vitals
+        vitals_col_width = self.page_content_width / 3
+        # Row 1
+        self.cell(vitals_col_width, self.line_height, bp)
+        self.cell(vitals_col_width, self.line_height, hr)
+        self.cell(vitals_col_width, self.line_height, temp, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        # Row 2
+        self.cell(vitals_col_width, self.line_height, spo2)
+        self.cell(vitals_col_width, self.line_height, weight)
+        self.cell(vitals_col_width, self.line_height, height, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        
+        self.ln(self.gap_between_sections)
+
+    def add_section_in_column(self, title, content, width):
+        start_x = self.get_x() # Remember column starting X
+        y_start = self.get_y()
+        
+        # --- Draw Title --- 
+        self.set_font("helvetica", "B", 10)
+        self.cell(width, self.section_title_height, title, border="B", align="L")
+        # Y position after title and gap
+        y_after_title = y_start + self.section_title_height + self.gap_after_section_title
+        self.set_xy(start_x, y_after_title)
+            
+        # --- Draw Content --- 
+        if content:
+            self.set_font("helvetica", "", 9)
+            # Use split_lines=True to calculate height correctly before drawing
+            # This is more reliable than relying on get_y() immediately after multi_cell with ln=3
+            lines = self.multi_cell(width, self.line_height, str(content), border=0, align="L", split_only=True)
+            num_lines = len(lines)
+            content_height = num_lines * self.line_height
+            
+            # Check for page break BEFORE drawing the content multi_cell
+            if self.get_y() + content_height > self.page_break_trigger:
+                # This section is too long to fit, ideally handle this better
+                # For now, let auto-page-break handle it during the actual multi_cell draw
+                # Or add logic here to draw title on new page if content won't fit below it
+                pass 
+                
+            # Draw the actual content
+            self.multi_cell(width, self.line_height, str(content), border=0, align="L")
+            # Calculate Y position after drawing the content
+            y_after_content = y_after_title + content_height
+            self.set_y(y_after_content)
+        else: # No content, Y position is just after title gap
+            self.set_y(y_after_title)
+            
+        self.set_x(start_x) # Reset X to column start
+        return self.get_y() # Return final Y position after drawing this section
+
+    def add_full_width_section(self, title, content):
+         if content:
+            self.set_font("helvetica", "B", 10)
+            self.cell(0, self.section_title_height, title, border="B", align="L", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            self.ln(self.gap_after_section_title)
+            self.set_font("helvetica", "", 9)
+            self.multi_cell(0, self.line_height, str(content))
+            self.ln(self.gap_between_sections)
+            self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+            self.ln(2)
+
+    def add_two_column_sections(self, left_sections, right_sections):
+        y_start_columns = self.get_y()
+        y_left_ends = []
+        y_right_ends = []
+        left_items = list(left_sections.items())
+        right_items = list(right_sections.items())
+        
+        # Draw Left Column Sections
+        current_x_left = self.l_margin
+        self.set_xy(current_x_left, y_start_columns)
+        current_y_left = y_start_columns
+        for i, (title, content) in enumerate(left_items):
+            self.set_xy(current_x_left, current_y_left) # Set position for this section
+            current_y_left = self.add_section_in_column(title, content, self.col_width)
+            y_left_ends.append(current_y_left) # Store end Y for each section
+            # Add gap between sections in the same column
+            if i < len(left_items) - 1:
+                 current_y_left += self.gap_between_sections
+            
+        # Set position for Right Column Sections
+        current_x_right = self.l_margin + self.col_width + self.col_gap
+        self.set_xy(current_x_right, y_start_columns) # Start right col at same Y
+        current_y_right = y_start_columns
+        for i, (title, content) in enumerate(right_items):
+            self.set_xy(current_x_right, current_y_right) # Set position for this section
+            current_y_right = self.add_section_in_column(title, content, self.col_width)
+            y_right_ends.append(current_y_right)
+             # Add gap between sections in the same column
+            if i < len(right_items) - 1:
+                 current_y_right += self.gap_between_sections
+            
+        # Determine the overall final Y position based on the tallest column's last section end
+        final_y = max(y_left_ends[-1] if y_left_ends else y_start_columns, 
+                      y_right_ends[-1] if y_right_ends else y_start_columns)
+        self.set_y(final_y)
+        self.ln(self.gap_after_final_section) # Use final gap after the whole block
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(2)
+
+    def add_prescription_table(self, prescriptions):
+        self.set_font("helvetica", "B", 10)
+        self.cell(0, self.section_title_height, "Prescription (Rx)", border="B", align="L", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.ln(self.gap_after_section_title)
+        if not prescriptions: 
+            self.set_font("helvetica", "I", 9)
+            self.cell(0, self.line_height, "(No prescription details recorded)")
+            self.ln(self.line_height + self.gap_between_sections)
+            self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+            self.ln(2)
+            return
+
+        self.set_font("helvetica", "B", 9)
+        total_width = self.page_content_width
+        sno_width = 8
+        med_width = total_width * 0.35 
+        dos_width = total_width * 0.15
+        instr_width = total_width - sno_width - med_width - dos_width # Remaining width
+        col_widths = (sno_width, med_width, dos_width, instr_width)
+        headers = ("S.No.", "Medicine", "Dosage", "Instructions")
+        
+        # Draw Table Header
+        for i, header in enumerate(headers):
+            self.cell(col_widths[i], self.line_height * 1.3, header, border=1, align="C")
+        self.ln()
+
+        self.set_font("helvetica", "", 9)
+        for idx, med in enumerate(prescriptions):
+            y_before = self.get_y()
+            x_before = self.get_x()
+            cell_padding = 1.2 
+            
+            sno = str(idx + 1) + "."
+            # Use correct keys from JSON
+            text_medicine = str(med.get('medicine_name', ''))
+            text_dosage = str(med.get('dosage', ''))
+            # Combine frequency, duration, instructions
+            freq = med.get('frequency', '')
+            dur = med.get('duration', '')
+            instr = med.get('instructions', '')
+            text_instructions = f"{freq}{' for ' + dur if dur else ''}{('. ' + instr) if instr else ''}".strip()
+            if not text_instructions: # Handle empty case
+                 text_instructions = dur # Fallback to just duration if freq/instr are empty
+            
+            # Calculate max lines needed using multi_cell dry run
+            max_lines = 1
+            all_texts = [text_medicine, text_dosage, text_instructions]
+            all_widths = [col_widths[1], col_widths[2], col_widths[3]]
+            for i, text in enumerate(all_texts):
+                 lines = self.multi_cell(all_widths[i], self.line_height, text, border=0, align='L', dry_run=True, output='LINES')
+                 max_lines = max(max_lines, len(lines))
+            
+            row_height = max_lines * self.line_height * cell_padding
+            row_height = max(row_height, self.line_height * 1.4) # Min height
+
+            # Page break check
+            if self.get_y() + row_height > self.page_break_trigger:
+                 self.add_page()
+                 self.set_font("helvetica", "B", 9)
+                 for i, header in enumerate(headers):
+                     self.cell(col_widths[i], self.line_height * 1.3, header, border=1, align="C")
+                 self.ln()
+                 self.set_font("helvetica", "", 9)
+                 y_before = self.get_y()
+                 x_before = self.get_x()
+
+            # Draw cells
+            current_x = x_before
+            self.set_y(y_before)
+            self.multi_cell(col_widths[0], row_height, sno, border='L', align='C', ln=3, max_line_height=self.line_height)
+            self.set_xy(current_x + col_widths[0], y_before)
+            self.multi_cell(col_widths[1], row_height, text_medicine, border='L', align='L', ln=3, max_line_height=self.line_height)
+            self.set_xy(current_x + col_widths[0] + col_widths[1], y_before)
+            self.multi_cell(col_widths[2], row_height, text_dosage, border='L', align='L', ln=3, max_line_height=self.line_height)
+            self.set_xy(current_x + col_widths[0] + col_widths[1] + col_widths[2], y_before)
+            self.multi_cell(col_widths[3], row_height, text_instructions, border='LR', align='L', ln=3, max_line_height=self.line_height)
+            
+            self.line(x_before, y_before + row_height, x_before + sum(col_widths), y_before + row_height)
+            self.set_y(y_before + row_height)
+        
+        self.ln(self.gap_between_sections)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.ln(2)
+
+    def add_follow_up(self, date):
+        if not date: return
+        self.set_font("helvetica", "B", 9)
+        date_str = date.strftime('%d-%b-%Y') if isinstance(date, datetime.date) else str(date)
+        self.cell(0, self.line_height, f"Follow-up advised on: {date_str}", align="L", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.ln(self.gap_after_final_section)
+        # No line needed if this is the last item before footer
+
 # --- Flask Routes ---
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        error = None
+
+        if not email or not password:
+            error = 'Email and Password are required.'
+            flash(error, 'danger')
+            return render_template('login.html')
+
+        user = fetch_one("SELECT id, name, email, role, password_hash FROM User WHERE email = %s", (email,))
+
+        if user is None or not check_password_hash(user['password_hash'], password):
+            error = 'Incorrect email or password.'
+            flash(error, 'danger')
+            return render_template('login.html')
+        
+        # Login successful - store user info in session
+        session.clear()
+        session['user_id'] = user['id']
+        session['user_name'] = user['name']
+        session['user_email'] = user['email']
+        session['user_role'] = user['role']
+        flash(f"Welcome back, {user['name']}!", 'success')
+
+        # Redirect to appropriate page based on role
+        if user['role'] == 'doctor':
+            return redirect(url_for('index')) # Doctor goes to patient dashboard
+        elif user['role'] == 'operator':
+             return redirect(url_for('check_in_dashboard')) # Operator goes to check-in
+        else: # Patient role (if implemented later)
+             return redirect(url_for('index')) # Or a patient-specific view
+
+    # GET request or failed login
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required # Protect the dashboard
 def index():
-    """Renders the main dashboard page."""
+    """Renders the main dashboard page (now primarily for doctors)."""
+    # --- DEBUGGING LOG --- 
+    logging.info(f"Accessing index route. Session User ID: {session.get('user_id')}, Role: {session.get('user_role')}")
+    
+    # Redirect Operators away from doctor dashboard
+    if session['user_role'] == 'operator':
+        logging.info(f"User is an operator, redirecting to check_in_dashboard.")
+        return redirect(url_for('check_in_dashboard'))
+    elif session['user_role'] != 'doctor':
+        # Redirect other roles (like patient) if needed
+        logging.warning(f"User role '{session['user_role']}' is not doctor, redirecting to login.")
+        flash("Access denied.", "danger")
+        return redirect(url_for('login'))
+        
     # Fetch all patients for the search list
     patients = fetch_all("SELECT id, name FROM Patient ORDER BY name")
     
@@ -141,6 +585,9 @@ def index():
     today_data = fetch_one(query_today, (doctor_id, today_date))
     todays_consultations_count = today_data['count'] if today_data else 0
     
+    # --- DEBUGGING LOG ---
+    logging.info(f"User is a doctor, proceeding to render index.html.")
+    
     return render_template(
         'index.html', 
         patients=patients, 
@@ -148,17 +595,31 @@ def index():
     )
 
 @app.route('/consultation/<int:patient_id>')
+@login_required # Protect consultation page
+# @role_required('doctor') # Assuming only doctors consult for now
 def consultation_page(patient_id):
     """Renders the main consultation page for a specific patient."""
-    patient = fetch_one("SELECT name FROM Patient WHERE id = %s", (patient_id,))
+    # Check if user is a doctor (can be refined based on requirements)
+    if session.get('user_role') != 'doctor':
+        flash("Only doctors can access the consultation page.", "danger")
+        return redirect(url_for('index'))
+        
+    patient = fetch_one("SELECT id, name FROM Patient WHERE id = %s", (patient_id,))
     if not patient:
-        return "Patient not found", 404
-    # Assume doctor ID 1 for now, replace with actual login system later
-    doctor_id = 1
+        flash(f"Patient with ID {patient_id} not found.", "error")
+        return redirect(url_for('index'))
+        
+    # Get doctor_id from session now
+    doctor_id = session.get('user_id') 
+    if not doctor_id: # Should be caught by @login_required, but extra check
+        flash("Session error. Please log in again.", "warning")
+        return redirect(url_for('login'))
+        
     return render_template('consultation.html', patient=patient, patient_id=patient_id, doctor_id=doctor_id)
 
 # UPDATED Route: Process accumulated transcript text via Gemini
 @app.route('/process_transcript_text', methods=['POST'])
+@login_required # Secure this endpoint
 def process_transcript_text():
     """Processes the final transcript text using Gemini, aiming for structured output."""
     data = request.json
@@ -320,17 +781,23 @@ Follow-Up Date:
 
 # UPDATED Route: Save consultation details (structured)
 @app.route('/save_consultation', methods=['POST']) # Removed patient_id from URL
+@login_required # Secure this endpoint
 def save_consultation():
     """Saves the confirmed structured consultation data to the database."""
     data = request.json
-    # Get doctor_id from session <-- Temporarily disable session check for MVP
-    # doctor_id = session.get('user_id')
+    # Get doctor_id from session
+    doctor_id = session.get('user_id')
 
-    # Validate session <-- Temporarily disable session check for MVP
-    # if not doctor_id:
-    #     return jsonify({"error": "User not logged in or session expired"}), 401 # Unauthorized
+    # Validate session
+    if not doctor_id:
+        # This should ideally not be reached due to @login_required
+        return jsonify({"error": "User not logged in or session expired"}), 401 # Unauthorized
+        
+    # Validate role (ensure only doctor saves consultation)
+    if session.get('user_role') != 'doctor':
+        return jsonify({"error": "Only doctors can save consultations."}), 403 # Forbidden
 
-    doctor_id = 1 # <<< TEMPORARY HARDCODED DOCTOR ID FOR MVP
+    # doctor_id = 1 # <<< REMOVE TEMPORARY HARDCODED DOCTOR ID FOR MVP
 
     # Define required fields from the incoming JSON data
     # doctor_id is now handled via session
@@ -403,10 +870,13 @@ def save_consultation():
 
 # --- Settings Routes ---
 @app.route('/settings')
+@login_required
+@role_required('doctor') # Only doctors can access settings
 def settings_page():
     """Displays the settings page for the logged-in doctor."""
-    # Assume doctor ID 1 for now
-    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    # Get doctor ID from session
+    doctor_id = session.get('user_id')
+    # doctor_id = 1 # <<< REMOVE HARDCODED DOCTOR ID
     
     doctor_details = fetch_one("SELECT * FROM User WHERE id = %s", (doctor_id,))
     
@@ -417,10 +887,13 @@ def settings_page():
     return render_template('settings.html', doctor=doctor_details)
 
 @app.route('/update_settings', methods=['POST'])
+@login_required
+@role_required('doctor') # Only doctors can update settings
 def update_settings():
     """Updates the settings for the logged-in doctor."""
-    # Assume doctor ID 1 for now
-    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    # Get doctor ID from session
+    doctor_id = session.get('user_id')
+    # doctor_id = 1 # <<< REMOVE HARDCODED DOCTOR ID
 
     try:
         # Get data from form
@@ -458,278 +931,108 @@ def update_settings():
 
 # UPDATED Route: PDF Download (Using Dynamic Doctor/Clinic Data)
 @app.route('/download_pdf/<int:consultation_id>')
+@login_required
 def download_pdf(consultation_id):
-    """Generates and sends a PDF for the given consultation using structured data."""
-    # Fetch consultation AND the specific doctor's details for this consultation
-    query = """SELECT c.*, 
-                  p.name AS patient_name, p.dob AS patient_dob, 
-                  p.gender AS patient_gender, p.address AS patient_address, 
-                  d.name AS doctor_name, d.phone_number AS doctor_phone, 
-                  d.registration_number AS doctor_reg_no, d.qualifications AS doctor_qual, 
-                  d.clinic_name, d.clinic_address, d.clinic_timings, d.clinic_closed_days 
-           FROM Consultation c 
-           JOIN Patient p ON c.patient_id = p.id 
-           JOIN User d ON c.doctor_id = d.id 
-           WHERE c.id = %s"""
-    consultation_data = fetch_one(query, (consultation_id,))
-
-    if not consultation_data:
-        return "Consultation not found", 404
-
+    """Generates and returns a PDF for a specific consultation."""
     try:
-        pdf = FPDF(orientation="P", unit="mm", format="A4")
+        # 1. Fetch Consultation Data
+        consultation_query = """
+            SELECT c.*, p.name as patient_name, p.dob as patient_dob, p.gender as patient_gender
+            FROM Consultation c
+            JOIN Patient p ON c.patient_id = p.id
+            WHERE c.id = %s
+        """
+        consultation_data = fetch_one(consultation_query, (consultation_id,))
+        if not consultation_data: return jsonify({"error": "Consultation not found"}), 404
+
+        # 2. Fetch Doctor/Clinic Data (as before)
+        doctor_id = consultation_data.get('doctor_id', 1)
+        doctor_query = """
+            SELECT name, email, phone_number, registration_number, qualifications,
+                   clinic_name, clinic_address, clinic_timings, clinic_closed_days
+            FROM User WHERE id = %s AND role = 'doctor' 
+        """
+        doctor_data = fetch_one(doctor_query, (doctor_id,))
+        if not doctor_data: doctor_data = fetch_one(doctor_query, (1,))
+        if not doctor_data:
+            doctor_data = {'name': 'Dr. Default', 'qualifications': '', 'registration_number': '', 'clinic_name': 'Default Clinic', 'clinic_address': '', 'clinic_timings': '', 'clinic_closed_days': ''}
+
+        # 3. Fetch Latest Vitals (as before)
+        latest_vitals = None
+        vitals_query = "SELECT * FROM Vitals WHERE patient_id = %s ORDER BY checkin_time DESC LIMIT 1"
+        latest_vitals = fetch_one(vitals_query, (consultation_data['patient_id'],))
+        if latest_vitals is None: latest_vitals = {}
+
+        # 4. Create PDF
+        pdf = ConsultationPDF(doctor_data)
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.set_font("Helvetica", size=10)
-        page_width = pdf.w - 2 * pdf.l_margin
 
-        # --- Header (Using Dynamic Data) ---
-        header_y_start = pdf.get_y()
-        pdf.set_font("Helvetica", 'B', 11)
-        pdf.cell(page_width * 0.6, 5, f"{consultation_data.get('doctor_name', 'N/A')}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_font("Helvetica", size=9)
-        qual_reg = f"{consultation_data.get('doctor_qual', 'N/A')} | Reg. No: {consultation_data.get('doctor_reg_no', 'N/A')}"
-        pdf.cell(page_width * 0.6, 4, qual_reg, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(page_width * 0.6, 4, f"Mob. No: {consultation_data.get('doctor_phone', 'N/A')}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        header_y_end_left = pdf.get_y()
-
-        # Clinic Details (Dynamic)
-        pdf.set_y(header_y_start)
-        pdf.set_x(pdf.l_margin + page_width * 0.6)
-        pdf.set_font("Helvetica", 'B', 11)
-        pdf.multi_cell(page_width * 0.4, 5, f"{consultation_data.get('clinic_name', 'Clinic Name N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_x(pdf.l_margin + page_width * 0.6)
-        pdf.set_font("Helvetica", size=9)
-        pdf.multi_cell(page_width * 0.4, 4, f"{consultation_data.get('clinic_address', 'Address N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_x(pdf.l_margin + page_width * 0.6)
-        pdf.multi_cell(page_width * 0.4, 4, f"Ph: {consultation_data.get('doctor_phone', 'N/A')}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Assuming clinic phone is doctor's phone for now
-        pdf.set_x(pdf.l_margin + page_width * 0.6)
-        timing_str = f"Timing: {consultation_data.get('clinic_timings', 'N/A')}"
-        if closed_days := consultation_data.get('clinic_closed_days'):
-            timing_str += f" | Closed: {closed_days}"
-        pdf.multi_cell(page_width * 0.4, 4, timing_str, border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        header_y_end_right = pdf.get_y()
-
-        # Move below the taller header block
-        pdf.set_y(max(header_y_end_left, header_y_end_right) + 2)
-
-        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y()) # Full width line
-        pdf.ln(4) # Space after header line
-
-        # --- Patient Details & Date ---
-        # Calculate Age (Example)
-        age = 'N/A'
-        if dob := consultation_data.get('patient_dob'):
-            today = datetime.date.today()
-            try:
-                age_val = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-                age = f"{age_val} Y"
-            except TypeError:
-                age = "Invalid DOB"
-                
-        patient_gender = consultation_data.get('patient_gender', 'N/A') or 'N/A' # Handle None or empty string
-        patient_display = f"ID: {consultation_data['patient_id']} - {consultation_data['patient_name']} ({patient_gender} / {age})"
-        pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(page_width * 0.7, 5, patient_display, border=0, new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.set_font("Helvetica", '', 10)
-        date_str = consultation_data['consultation_date'].strftime("%d-%b-%Y, %I:%M %p")
-        pdf.cell(page_width * 0.3, 5, f"Date: {date_str}", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-        pdf.set_font("Helvetica", '', 9)
-        pdf.cell(page_width, 4, f"Address: {consultation_data.get('patient_address') or 'N/A'}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(page_width, 4, f"Weight(kg): N/A  Height (cms): N/A  BP: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(page_width, 4, f"Referred By: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(page_width, 4, f"Known History Of: N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(4) # More space before consultation details
-
-        # --- Consultation Details (Two Columns - Reworked Logic) ---
-        col_width = page_width / 2 - 2 # Column width with small gap
-        line_height = 5
-        section_padding_bottom = 2 # Space after content within a section box
-        row_gap = 2 # Vertical space between rows of sections
-
-        # --- Helper Function to calculate multicell height ---
-        def get_multicell_height(width, text):
-            pdf.set_font("Helvetica", '', 9) # Ensure correct font is set for calculation
-            lines = pdf.multi_cell(width, line_height, text or "N/A", border=0, align='L', split_only=True)
-            return len(lines) * line_height + section_padding_bottom
-
-        # --- Helper to draw a bordered section box with content ---
-        def draw_bordered_section(x, y, height, heading, content):
-            pdf.set_xy(x, y)
-            # Draw top border
-            pdf.line(x, y, x + col_width, y)
-            # Heading
-            pdf.set_font("Helvetica", 'B', 10)
-            pdf.cell(col_width, 6, " " + heading, border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Add space before heading
-            # Content
-            content_start_y = pdf.get_y()
-            pdf.set_x(x + 1) # Indent content slightly
-            pdf.set_font("Helvetica", '', 9)
-            pdf.multi_cell(col_width - 2, line_height, content or "N/A", border=0, align='L')
-            # Draw side borders based on calculated height
-            pdf.line(x, y, x, y + height)
-            pdf.line(x + col_width, y, x + col_width, y + height)
-            # Draw bottom border
-            pdf.line(x, y + height, x + col_width, y + height)
-
-        # --- Draw Sections Row by Row ---
-        current_y = pdf.get_y()
-        left_x = pdf.l_margin
-        right_x = pdf.l_margin + col_width + 4
-
-        # Row 1: Chief Complaints & Clinical Findings
-        cc_content = consultation_data.get('chief_complaints')
-        cf_content = consultation_data.get('clinical_findings')
-        h1 = get_multicell_height(col_width - 2, cc_content) + 6 # Add heading height
-        h2 = get_multicell_height(col_width - 2, cf_content) + 6
-        max_h_row1 = max(h1, h2)
-        draw_bordered_section(left_x, current_y, max_h_row1, "Chief Complaints", cc_content)
-        draw_bordered_section(right_x, current_y, max_h_row1, "Clinical Findings", cf_content)
-        current_y += max_h_row1 + row_gap
-
-        # Row 2: Notes & Diagnosis
-        notes_content = consultation_data.get('internal_notes') # Use internal_notes field
-        diag_content = consultation_data.get('diagnosis')
-        h1 = get_multicell_height(col_width - 2, notes_content) + 6
-        h2 = get_multicell_height(col_width - 2, diag_content) + 6
-        max_h_row2 = max(h1, h2)
-        draw_bordered_section(left_x, current_y, max_h_row2, "Notes", notes_content)
-        draw_bordered_section(right_x, current_y, max_h_row2, "Diagnosis", diag_content)
-        current_y += max_h_row2 + row_gap
-
-        # Row 3: Procedures & Investigations
-        proc_content = consultation_data.get('procedures_conducted')
-        inv_content = consultation_data.get('investigations')
-        h1 = get_multicell_height(col_width - 2, proc_content) + 6
-        h2 = get_multicell_height(col_width - 2, inv_content) + 6
-        max_h_row3 = max(h1, h2)
-        draw_bordered_section(left_x, current_y, max_h_row3, "Procedures conducted", proc_content)
-        draw_bordered_section(right_x, current_y, max_h_row3, "Investigations", inv_content)
-        current_y += max_h_row3 + 4 # Extra gap before prescription
-        pdf.set_y(current_y)
-
-        # --- Prescription Table (Updated for all fields) ---
-        pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(0, 8, "Prescription", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_fill_color(230, 230, 230)
-        pdf.set_font("Helvetica", 'B', 9)
+        # Add Patient Details & Date (using updated methods)
+        pdf.add_patient_details(consultation_data['patient_name'], consultation_data['patient_id'], consultation_data['patient_dob'], consultation_data['patient_gender'])
+        pdf.add_consultation_date(consultation_data['consultation_date'])
         
-        # Define column widths (Adjusted for new columns)
-        col_sr = 10
-        col_med = 50 # Reduced
-        col_dose = 30 # Reduced
-        col_freq = 30 # Added
-        col_dur = 30 # Reduced
-        col_inst = page_width - col_sr - col_med - col_dose - col_freq - col_dur # Added Instructions
-        row_height = 6 # Base row height
-
-        # Table Header (Updated)
-        start_x = pdf.get_x()
-        pdf.cell(col_sr, row_height, "Sr.", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(col_med, row_height, "Medicine Name", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(col_dose, row_height, "Dosage", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(col_freq, row_height, "Frequency", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP) # Added Frequency Header
-        pdf.cell(col_dur, row_height, "Duration", border=1, fill=True, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-        pdf.cell(col_inst, row_height, "Instructions", border=1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Added Instructions Header
-
-        pdf.set_font("Helvetica", '', 9)
-        pdf.set_fill_color(255, 255, 255) # Reset fill
-        prescription_list = json.loads(consultation_data.get('prescription_details', '[]') or '[]') # Handle None
+        # Add Vitals Section (using updated method)
+        pdf.add_vitals(latest_vitals)
         
-        if prescription_list:
-            for i, item in enumerate(prescription_list, 1):
-                start_y = pdf.get_y()
-                start_x = pdf.get_x()
-                
-                # Calculate height needed for each cell in this row
-                pdf.set_xy(start_x + col_sr, start_y) # Position for Medicine cell
-                pdf.multi_cell(col_med, line_height, item.get('medicine_name', ''), border=0, align='L')
-                h_med = pdf.get_y() - start_y
-
-                pdf.set_xy(start_x + col_sr + col_med, start_y) # Position for Dosage cell
-                pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border=0, align='L')
-                h_dose = pdf.get_y() - start_y
-
-                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y) # Position for Frequency cell
-                pdf.multi_cell(col_freq, line_height, item.get('frequency', ''), border=0, align='L')
-                h_freq = pdf.get_y() - start_y
-
-                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq, start_y) # Position for Duration cell
-                pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border=0, align='L')
-                h_dur = pdf.get_y() - start_y
-
-                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq + col_dur, start_y) # Position for Instructions cell
-                pdf.multi_cell(col_inst, line_height, item.get('instructions', ''), border=0, align='L')
-                h_inst = pdf.get_y() - start_y
-
-                # Determine max height for the row
-                max_h = max(h_med, h_dose, h_freq, h_dur, h_inst, row_height) # Added h_freq, h_inst
-
-                # Draw the cells with borders and calculated height
-                pdf.set_xy(start_x, start_y)
-                pdf.cell(col_sr, max_h, str(i), border=1, align='C', new_x=XPos.RIGHT, new_y=YPos.TOP)
-                pdf.set_xy(start_x + col_sr, start_y) # Need xy for multi_cell positioning
-                pdf.multi_cell(col_med, line_height, item.get('medicine_name', ''), border='LR', align='L')
-                pdf.set_xy(start_x + col_sr + col_med, start_y)
-                pdf.multi_cell(col_dose, line_height, item.get('dosage', ''), border='LR', align='L')
-                pdf.set_xy(start_x + col_sr + col_med + col_dose, start_y)
-                pdf.multi_cell(col_freq, line_height, item.get('frequency', ''), border='LR', align='L') # Added Frequency Cell Draw
-                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq, start_y)
-                pdf.multi_cell(col_dur, line_height, item.get('duration', ''), border='LR', align='L')
-                pdf.set_xy(start_x + col_sr + col_med + col_dose + col_freq + col_dur, start_y)
-                pdf.multi_cell(col_inst, line_height, item.get('instructions', ''), border='LR', align='L') # Added Instructions Cell Draw
-                
-                # Draw bottom border for the row
-                pdf.set_y(start_y + max_h) # Move Y below the row
-                pdf.line(start_x, pdf.get_y(), start_x + page_width, pdf.get_y())
-                pdf.set_x(start_x) # Reset X for next potential row
+        # --- Add Consultation Sections in Two Columns --- 
+        left_column_data = {
+            "Chief Complaints": consultation_data.get('chief_complaints', ''),
+            "Clinical Findings": consultation_data.get('clinical_findings', ''),
+            "Procedures Conducted": consultation_data.get('procedures_conducted', '')
+        }
+        right_column_data = {
+            "Diagnosis": consultation_data.get('diagnosis', ''),
+            "Investigations": consultation_data.get('investigations', ''),
+            "Advice Given": consultation_data.get('advice_given', '')
+        }
+        pdf.add_two_column_sections(left_column_data, right_column_data)
+        # --- End Two Column Section --- 
+        
+        # Add Prescription Table (Full Width)
+        prescription_details = consultation_data.get('prescription_details')
+        if isinstance(prescription_details, str): # Handle JSON string from DB
+            try: prescription_details = json.loads(prescription_details)
+            except json.JSONDecodeError: prescription_details = None
+        
+        if prescription_details and isinstance(prescription_details, list) and len(prescription_details) > 0:
+             pdf.add_prescription_table(prescription_details)
         else:
-             pdf.cell(page_width, row_height, "No medication prescribed.", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(5) # Space after table
+             # Add note if no prescription (using full_width_section for consistency)
+             pdf.add_full_width_section("Prescription", "(No prescription details recorded)")
 
-        # --- Advice & Follow Up (Improved Spacing) ---
-        pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(page_width, 6, "Advice Given:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_font("Helvetica", '', 9)
-        pdf.multi_cell(page_width, line_height, consultation_data.get('advice_given') or "N/A", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(4) # Increased space
+        # Add Follow-up Date (Full Width)
+        if consultation_data.get('follow_up_date'):
+            pdf.add_follow_up(consultation_data['follow_up_date'])
 
-        pdf.set_font("Helvetica", 'B', 10)
-        follow_up = consultation_data.get('follow_up_date')
-        follow_up_str = follow_up.strftime("%d-%m-%Y") if follow_up else "N/A"
-        pdf.cell(page_width, 6, f"Follow Up: {follow_up_str}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.ln(12) # More space before signature
-
-        # --- Signature ---
-        current_y = pdf.get_y()
-        pdf.set_y(max(current_y, pdf.h - pdf.b_margin - 25)) # Move towards bottom margin
-        pdf.cell(page_width, 5, "Signature", border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_font("Helvetica", 'B', 10)
-        pdf.cell(page_width, 5, consultation_data.get('doctor_name', 'N/A'), border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.set_font("Helvetica", '', 9)
-        pdf.cell(page_width, 4, consultation_data.get('doctor_qual', 'N/A'), border=0, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) # Use dynamic qualifications
-
-        # --- Save PDF to Buffer ---
-        pdf_buffer = io.BytesIO()
+        # Generate PDF output
         pdf_output = pdf.output()
-        pdf_buffer.write(pdf_output)
-        pdf_buffer.seek(0)
 
+        # Send PDF as a file download
         return send_file(
-            pdf_buffer,
+            io.BytesIO(pdf_output),
+            mimetype='application/pdf',
             as_attachment=True,
-            download_name=f"consultation_{consultation_id}_{consultation_data['patient_name'].replace(' ', '_')}.pdf", # Sanitize filename
-            mimetype='application/pdf'
+            download_name=f'Consultation_{consultation_data["patient_name"]}_{consultation_id}.pdf'
         )
 
     except Exception as e:
+        print(f"Error generating PDF: {e}")
         import traceback
-        print(f"Error generating PDF: {e}\n{traceback.format_exc()}")
+        traceback.print_exc()
         return jsonify({"error": f"Failed to generate PDF: {e}"}), 500
+
+# --- Helper to fetch latest vitals before a certain time ---
+def get_latest_vitals(patient_id, before_time):
+    query = """SELECT * FROM Vitals 
+               WHERE patient_id = %s AND checkin_time < %s 
+               ORDER BY checkin_time DESC 
+               LIMIT 1"""
+    return fetch_one(query, (patient_id, before_time))
 
 # --- WebSocket Route for Live Transcription Demo ---
 @sock.route('/live_transcript')
+@login_required # Secure WebSocket endpoint
 def live_transcript(ws): # ws is the WebSocket connection object
     print("Live transcript WebSocket connected")
     first_chunk_received = False
@@ -858,12 +1161,15 @@ def process_stt_responses(ws, responses, start_time, timeout_duration, chunk_rec
     finally:
         print(f"Process STT responses loop finished. (Transcripts sent: {transcript_sent})")
 
-# --- New EOD Summary Route ---
+# --- New EOD Summary Route --- (Used by Doctor Dashboard)
 @app.route('/get_eod_data')
+@login_required
+@role_required('doctor') # Only doctors view EOD summary
 def get_eod_data():
     """Fetches details of consultations created today and doctor info."""
-    # Assuming doctor ID 1 for now
-    doctor_id = 1 # <<< HARDCODED DOCTOR ID
+    # Get doctor ID from session
+    doctor_id = session.get('user_id')
+    # doctor_id = 1 # <<< REMOVE HARDCODED DOCTOR ID
     today_date = datetime.date.today()
     
     # Fetch Doctor's Name
@@ -884,9 +1190,14 @@ def get_eod_data():
         "consultations": todays_consultations
         })
 
-# --- New Route for Live ADR Check ---
+# --- New Route for Live ADR Check --- (Used by Consultation Page)
 @app.route('/check_adr', methods=['POST'])
+@login_required # Secure this endpoint
 def check_adr():
+    # Optional: Add role check if needed (e.g., ensure only doctor triggers)
+    # if session.get('user_role') != 'doctor':
+    #     return jsonify({"error": "Unauthorized"}), 403
+    
     if not OPENFDA_API_KEY:
         return jsonify({"error": "OpenFDA API Key not configured"}), 500
 
@@ -1011,6 +1322,194 @@ def check_adr():
 
     logging.info(f"Returning validated ADRs: {validated_adrs}")
     return jsonify({"validated_adrs": validated_adrs})
+
+# --- Check-in / Vitals Routes (Operator Interface) ---
+
+@app.route('/check-in')
+@login_required
+@role_required('operator') # Only operators access check-in
+def check_in_dashboard():
+    """Displays the operator check-in dashboard."""
+    # Fetch patients for selection
+    patients = fetch_all("SELECT id, name, dob FROM Patient ORDER BY name")
+    return render_template('check_in.html', patients=patients)
+
+@app.route('/add_patient', methods=['GET', 'POST'])
+@login_required
+# Allow both Doctor and Operator to add patients
+# @role_required('operator') 
+def add_patient():
+    """Handles adding a new patient."""
+    if session.get('user_role') not in ['doctor', 'operator']:
+        flash("You do not have permission to add patients.", "danger")
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        name = request.form.get('name')
+        dob = request.form.get('dob') # Expect YYYY-MM-DD
+        gender = request.form.get('gender')
+        address = request.form.get('address')
+
+        if not name or not dob or not gender:
+            flash("Patient Name, Date of Birth, and Gender are required.", "error")
+            # Return the form again, perhaps prepopulating if needed
+            return render_template('add_patient.html') 
+
+        # Validate DOB format (basic)
+        try:
+            datetime.datetime.strptime(dob, '%Y-%m-%d')
+        except ValueError:
+             flash("Invalid Date of Birth format. Please use YYYY-MM-DD.", "error")
+             return render_template('add_patient.html')
+             
+        # Validate Gender
+        if gender not in ['M', 'F', 'O']:
+            flash("Invalid Gender selected.", "error")
+            return render_template('add_patient.html')
+
+        query = "INSERT INTO Patient (name, dob, gender, address) VALUES (%s, %s, %s, %s)"
+        params = (name, dob, gender, address)
+        patient_id = execute_query(query, params)
+
+        if patient_id:
+            flash(f"Patient '{name}' added successfully (ID: {patient_id}).", "success")
+            # Redirect back to appropriate dashboard based on role
+            if session['user_role'] == 'operator':
+                 return redirect(url_for('check_in_dashboard'))
+            else: # Doctor
+                 return redirect(url_for('index'))
+        else:
+            flash("Error adding patient to database.", "error")
+            return render_template('add_patient.html')
+
+    # GET request
+    return render_template('add_patient.html')
+
+@app.route('/record_vitals', methods=['POST'])
+@login_required
+@role_required('operator') # Only operators record vitals
+def record_vitals():
+    """Records patient vitals submitted from the check-in form."""
+    patient_id = request.form.get('patient_id')
+    bp_systolic = request.form.get('bp_systolic', type=int)
+    bp_diastolic = request.form.get('bp_diastolic', type=int)
+    heart_rate = request.form.get('heart_rate', type=int)
+    temperature = request.form.get('temperature', type=float)
+    spo2 = request.form.get('spo2', type=int)
+    weight_kg = request.form.get('weight_kg', type=float)
+    height_cm = request.form.get('height_cm', type=float)
+    notes = request.form.get('notes')
+    operator_id = session.get('user_id') # Get the ID of the operator recording vitals
+    checkin_time = datetime.datetime.now() # Get current timestamp
+    checkin_date = checkin_time.date() # <<< Extract date part
+
+    if not patient_id:
+        flash("Please select a patient.", "danger")
+        return redirect(url_for('check_in_dashboard'))
+
+    # Ensure at least one vital sign is entered (optional, based on requirements)
+    if not any([bp_systolic, bp_diastolic, heart_rate, temperature, spo2, weight_kg, height_cm]):
+        flash("Please enter at least one vital sign.", "warning")
+        # Redirect back, potentially preserving selected patient?
+        return redirect(url_for('check_in_dashboard'))
+
+    # Insert into Vitals table (including the new checkin_date)
+    query = """INSERT INTO Vitals (
+                   patient_id, checkin_date, checkin_time, operator_id, bp_systolic, bp_diastolic, 
+                   heart_rate, temperature, spo2, weight_kg, height_cm, notes
+               ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+    params = (
+        patient_id, checkin_date, checkin_time, operator_id, bp_systolic, bp_diastolic, 
+        heart_rate, temperature, spo2, weight_kg, height_cm, notes
+    )
+    
+    vital_id = execute_query(query, params)
+
+    if vital_id:
+        flash("Vitals recorded successfully.", "success")
+    else:
+        flash("Error recording vitals.", "danger")
+
+    return redirect(url_for('check_in_dashboard'))
+
+
+# --- User Management Routes (Doctor Only) ---
+@app.route('/manage_users')
+@login_required
+@role_required('doctor')
+def manage_users():
+    """Renders the user management hub page (for doctors)."""
+    # No data fetching needed for the hub page itself
+    # patients = fetch_all("SELECT id, name FROM Patient ORDER BY name") # <<< Remove this line
+    return render_template('manage_users.html') # Pass only the template
+
+@app.route('/manage_operators')
+@login_required
+@role_required('doctor')
+def manage_operators():
+    """Displays a list of operators for management."""
+    # Fetch operators (users with role 'operator') from DB
+    operators = fetch_all("SELECT id, name, email FROM User WHERE role = %s ORDER BY name", ('operator',))
+    # Render the specific template for managing operators
+    return render_template('manage_operators.html', operators=operators)
+    # flash("Operator management page not yet implemented.", "info") # Remove placeholder
+    # return redirect(url_for('manage_users')) # Remove placeholder
+
+@app.route('/manage_patients')
+@login_required
+@role_required('doctor')
+def manage_patients():
+    """Displays a list of patients for management."""
+    # Fetch all patients from DB
+    patients = fetch_all("SELECT id, name, dob, gender, address FROM Patient ORDER BY name")
+    # Render the specific template for managing patients
+    return render_template('manage_patients.html', patients=patients)
+    # flash("Patient management page not yet implemented.", "info") # Remove placeholder
+    # return redirect(url_for('manage_users')) # Remove placeholder
+
+@app.route('/add_user', methods=['GET', 'POST'])
+@login_required
+@role_required('doctor') # Only doctors can add operators
+def add_user():
+    """Handles adding a new user with the 'operator' role."""
+    if request.method == 'POST':
+        name = request.form.get('name')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        role = 'operator' # Hardcode role to operator
+        error = None
+
+        if not name or not email or not password:
+            error = 'Name, Email, and Password are required.'
+        
+        # Check if email already exists
+        if not error:
+            existing_user = fetch_one("SELECT id FROM User WHERE email = %s", (email,))
+            if existing_user:
+                error = f'Email "{email}" is already registered.'
+
+        if error:
+            flash(error, 'danger')
+            # Return the add_user template again, pre-filling name/email if possible
+            return render_template('add_user.html', name=name, email=email)
+        else:
+            # Hash the password
+            password_hash = generate_password_hash(password)
+
+            # Insert new operator into User table
+            query = """INSERT INTO User (name, email, password_hash, role)
+                       VALUES (%s, %s, %s, %s)"""
+            user_id = execute_query(query, (name, email, password_hash, role))
+
+            if user_id:
+                flash(f'Operator "{name}" added successfully.', 'success')
+                return redirect(url_for('manage_operators')) # Redirect to operator list
+            else:
+                flash('Error adding operator to the database.', 'danger')
+                return render_template('add_user.html', name=name, email=email)
+
+    # GET request: just render the empty form
+    return render_template('add_user.html')
 
 # --- Run the App ---
 if __name__ == '__main__':
